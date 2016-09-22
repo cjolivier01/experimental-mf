@@ -1,12 +1,8 @@
 #include <iostream>
 #include <fstream>
-#include <string>
 #include <ctime>
-#include <cstdlib>
 #include <algorithm>
 #include <unordered_map>
-#include <tuple>
-#include <vector>
 #include "blocks.pb.h"
 
 typedef std::unordered_map<int, std::vector<std::pair<int, float>>> Dict;
@@ -16,9 +12,9 @@ typedef unsigned long long uint64;
 typedef unsigned int       uint32;
 #define CACHE_LINE_SIZE 64
 
-int block_size = 1000;
+static int block_size = 1000;
 
-void read_raw(char* file, std::vector<Tuple>& data) {
+static void read_raw(char* file, std::vector<Tuple>& data) {
   FILE* fp = fopen(file, "r");
   int nn;
   int u,v,t;
@@ -36,7 +32,7 @@ void read_raw(char* file, std::vector<Tuple>& data) {
   fclose(fp);
 }
 
-void write_by_dict(Dict& du, FILE* fp) {
+static void write_by_dict(Dict& du, FILE* fp) {
   for(DictIt it(du.begin()); it!=du.end(); it++) {
     int u = it->first;
     fprintf(fp, "%d:\n", u);
@@ -49,7 +45,7 @@ void write_by_dict(Dict& du, FILE* fp) {
   }
 }
 
-void userwise(char* write, std::vector<Tuple>& data, int nb, int nresd, int bk) {
+static void userwise(char* write, std::vector<Tuple>& data, int nb, int nresd, int bk) {
   int i;
   FILE* fp = fopen(write, "w");
   for(i=0; i<bk-1; i++) {
@@ -79,7 +75,7 @@ void userwise(char* write, std::vector<Tuple>& data, int nb, int nresd, int bk) 
   fclose(fp);
 }
 
-void get_message(char* read, char* write)
+static void get_message(char* read, char* write)
 {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
   std::ifstream ins(read);
@@ -125,7 +121,7 @@ void get_message(char* read, char* write)
   google::protobuf::ShutdownProtobufLibrary();
 }
 
-void hint() {
+static void hint() {
   printf("-r         [input_file_name]\n");
   printf("-w         [output_file_name]\n");
   printf("--method   [userwise/protobuf]\n");

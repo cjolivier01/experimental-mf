@@ -3,7 +3,7 @@
 #include "../src/dpmf.h"
 #include "../src/admf.h"
 
-void show_help() {
+static void show_help() {
   printf("Usage:\n");
   printf("./mf\n");
   printf("--train      xxx       : xxx is the file name of the binary training data.\n");
@@ -33,7 +33,7 @@ void show_help() {
 }
 
 //assuming test data can fit into RAM
-void run(MF& mf) {
+static void run(MF& mf) {
   mf.init();
   if(mf.model_ != NULL) mf.read_model();
   mf::Blocks blocks_test;
@@ -52,7 +52,7 @@ void run(MF& mf) {
 }
 
 //assuming test data can fit into RAM
-void run(DPMF& dpmf) {
+static void run(DPMF& dpmf) {
   dpmf.init();
   if(dpmf.model_ != NULL) dpmf.read_hyper();
   mf::Blocks blocks_test;
@@ -74,7 +74,7 @@ void run(DPMF& dpmf) {
 }
 
 //assuming test, valid data can fit into RAM
-void run(AdaptRegMF& admf) {
+static void run(AdaptRegMF& admf) {
   admf.init1();
   mf::Blocks blocks_test;
   plain_read(admf.test_data_, blocks_test);
