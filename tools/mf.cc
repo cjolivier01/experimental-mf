@@ -1,7 +1,7 @@
-#include "model.h"
-#include "mf.h"
-#include "dpmf.h"
-#include "admf.h"
+#include "../src/model.h"
+#include "../src/mf.h"
+#include "../src/dpmf.h"
+#include "../src/admf.h"
 
 void show_help() {
     printf("Usage:\n");

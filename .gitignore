@@ -26,3 +26,7 @@
 *.exe
 *.out
 *.app
+.idea
+dmlc-core
+build
+bin
