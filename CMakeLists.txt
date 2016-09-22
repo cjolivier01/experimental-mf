@@ -41,6 +41,23 @@ find_package(SWIG)
 # ---[ Protobuf
 include(${PROJECT_SOURCE_DIR}/cmake/ProtoBuf.cmake)
 
+# ---[ Google Test
+if(NOT GTEST_ROOT)
+  if(EXISTS "${PROJECT_SOURCE_DIR}/googletest")
+    add_subdirectory("${PROJECT_SOURCE_DIR}/googletest")
+    set(GTEST_ROOT "${PROJECT_SOURCE_DIR}/googletest")
+    set(GTEST_BOTH_LIBRARIES gtest gtest_main)
+  elseif(EXISTS "${PROJECT_SOURCE_DIR}/gtest")
+    add_subdirectory("${PROJECT_SOURCE_DIR}/gtest")
+    set(GTEST_ROOT "${PROJECT_SOURCE_DIR}/gtest")
+    set(GTEST_BOTH_LIBRARIES gtest gtest_main)
+  else()
+    enable_testing()
+    find_package(GTest)
+    dbmsg("GTEST_BOTH_LIBRARIES: ${GTEST_BOTH_LIBRARIES}")
+  endif()
+endif()
+
 # generate protobuf sources
 set(proto_gen_folder "${PROJECT_BINARY_DIR}/src")
 file(GLOB_RECURSE proto_files "src/*.proto")
@@ -76,7 +93,7 @@ endif(MSVC)
 
 #FILE(COPY DIRECTORY "${PROJECT_BINARY_DIR}/include" DESTINATION "${PROJECT_SOURCE_DIR}/" FILES_MATCHING PATTERN "*.pb.h")
 FILE(GLOB SOURCE "src/*.cc")
-FILE(GLOB TEST_SOURCE "test/*.cc")
+FILE(GLOB TEST_SOURCE "tests/*.cc")
 
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHsc")
@@ -105,6 +122,14 @@ target_link_libraries(getdata fastmf ${fastmf_LINKER_LIBS})
 
 add_executable(mf tools/mf.cc)
 target_link_libraries(mf fastmf ${fastmf_LINKER_LIBS})
+
+add_executable(mf_unit_tests ${TEST_SOURCE})
+target_link_libraries(mf_unit_tests
+  fastmf
+  ${fastmf_LINKER_LIBS}
+  ${GTEST_BOTH_LIBRARIES}
+  )
+add_test(AllTestsInMfUnitTests mf_unit_tests)
 
 list(APPEND fastmf_LINKER_LIBS_L ${PROTOBUF_LIBRARIES})
 list(APPEND fastmf_INCLUDE_DIR_L "${PROJECT_SOURCE_DIR}/include")
