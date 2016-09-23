@@ -58,6 +58,8 @@ if(NOT GTEST_ROOT)
   endif()
 endif()
 
+include_directories(${PROJECT_SOURCE_DIR}/src)
+
 # generate protobuf sources
 set(proto_gen_folder "${PROJECT_BINARY_DIR}/src")
 file(GLOB_RECURSE proto_files "src/*.proto")
@@ -76,7 +78,7 @@ else(MSVC)
   include(CheckCXXCompilerFlag)
   check_cxx_compiler_flag("-std=c++11"   SUPPORT_CXX11)
   check_cxx_compiler_flag("-msse2"       SUPPORT_MSSE2)
-  set(CMAKE_C_FLAGS "-Wall -Wno-unknown-pragmas -fPIC")
+  set(CMAKE_C_FLAGS "-Wall -Wno-unknown-pragmas -Wno-unused-result -fPIC")
   if(NDEBUG)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
   else(NDEBUG)
