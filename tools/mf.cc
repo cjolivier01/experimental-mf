@@ -132,15 +132,15 @@ int main(int argc, char** argv) {
     else if(!strcmp(argv[i], "--measure"))     measure  = atoi(argv[++i]);
     else {
       printf("%s, unknown parameters, exit\n", argv[i]);
-      exit(1);
+      return 1;
     }
   }
   if (train_data == NULL || nu == 0 || nv == 0) {
     printf("Note that train_data/#users/#items are not optional!\n");
     show_help();
-    exit(1);
+    return 1;
   }
-  if(!strcmp(alg, "mf") || alg==NULL) {
+  if(!alg || !*alg || !strcmp(alg, "mf")) {
     MF mf(train_data, test_data, result, model, dim, iter, eta, gam, lambda, \
               g_bias, nu, nv, fly, stride);
     run(mf);
@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
   }
   else {
     printf("Pleae select a solver: mf/dpmf/admf\n");
-    exit(2);
+    return 2;
   }
   return 0;
 }
