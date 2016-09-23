@@ -23,12 +23,12 @@ extern "C"
 }
 extern "C"
 {
-  void cblas_saxpy(const int N, const float alpha, const float *X,
-		   const int incX, float *Y, const int incY);
-  void cblas_scopy(const int N, const float *X, const int incX,
-		   float *Y, const int incY);
-  float cblas_sdot(const int N, const float  *X, const int incX,
-		    const float  *Y, const int incY);
+void cblas_saxpy(const int N, const float alpha, const float *X,
+const int incX, float *Y, const int incY);
+void cblas_scopy(const int N, const float *X, const int incX,
+float *Y, const int incY);
+float cblas_sdot(const int N, const float  *X, const int incX,
+const float  *Y, const int incY);
 }
 #else
 #include "mkl.h"
@@ -53,11 +53,11 @@ extern std::normal_distribution<float> gaussian;
 
 #ifdef FETCH
 inline void prefetch_range(char *addr, size_t len) {
-  char *cp;
-  char *end = addr + len;
+char *cp;
+char *end = addr + len;
 
-  for (cp = addr; cp < end; cp += CACHE_LINE_SIZE)
-    __builtin_prefetch(cp,1,0);
+for (cp = addr; cp < end; cp += CACHE_LINE_SIZE)
+__builtin_prefetch(cp,1,0);
 }
 #endif
 
