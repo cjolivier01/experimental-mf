@@ -33,63 +33,91 @@ static void show_help() {
 }
 
 //assuming test data can fit into RAM
-static void run(MF& mf) {
+static int run(MF& mf) {
+  int rc = 0;
   mf.init();
-  if(mf.model_ != NULL) mf.read_model();
+  if(mf.model_ != NULL) {
+    mf.read_model();
+  }
   mf::Blocks blocks_test;
-  plain_read(mf.test_data_, blocks_test);
-  FILE* f = fopen(mf.train_data_, "rb");
-  SgdReadFilter read_f(mf, f, blocks_test);
-  ParseFilter parse_f(mf.data_in_fly_);
-  SgdFilter sgd_f(mf);
-  tbb::pipeline p;
-  p.add_filter(read_f);
-  p.add_filter(parse_f);
-  p.add_filter(sgd_f);
-  s = Time::now();
-  p.run(mf.data_in_fly_);
-  fclose(f);
+  rc = plain_read(mf.test_data_, blocks_test);
+  if(!rc) {
+    FILE *f = fopen(mf.train_data_, "rb");
+    if (f) {
+      SgdReadFilter read_f(mf, f, blocks_test);
+      ParseFilter parse_f(mf.data_in_fly_);
+      SgdFilter sgd_f(mf);
+      tbb::pipeline p;
+      p.add_filter(read_f);
+      p.add_filter(parse_f);
+      p.add_filter(sgd_f);
+      s = Time::now();
+      p.run(mf.data_in_fly_);
+      fclose(f);
+    } else {
+      rc = errno;
+    }
+  }
+  return rc;
 }
 
 //assuming test data can fit into RAM
-static void run(DPMF& dpmf) {
+static int run(DPMF& dpmf) {
+  int rc = 0;
   dpmf.init();
-  if(dpmf.model_ != NULL) dpmf.read_hyper();
-  mf::Blocks blocks_test;
-  plain_read(dpmf.test_data_, blocks_test);
-  FILE* f = fopen(dpmf.train_data_, "rb");
-  SgldReadFilter read_f(dpmf, f);
-  ParseFilter parse_f(dpmf.data_in_fly_);
-  SgldFilter sgld_f(dpmf);
-  tbb::pipeline p;
-  p.add_filter(read_f);
-  p.add_filter(parse_f);
-  p.add_filter(sgld_f);
-  s = Time::now();
-  for(int i=1; i<=dpmf.iter_; i++) {
-    p.run(dpmf.data_in_fly_);
-    dpmf.finish_round(blocks_test, i);
+  if(dpmf.model_ != NULL) {
+    dpmf.read_hyper();
   }
-  fclose(f);
+  mf::Blocks blocks_test;
+  rc = plain_read(dpmf.test_data_, blocks_test);
+  if(!rc) {
+    FILE *f = fopen(dpmf.train_data_, "rb");
+    if (f) {
+      SgldReadFilter read_f(dpmf, f);
+      ParseFilter parse_f(dpmf.data_in_fly_);
+      SgldFilter sgld_f(dpmf);
+      tbb::pipeline p;
+      p.add_filter(read_f);
+      p.add_filter(parse_f);
+      p.add_filter(sgld_f);
+      s = Time::now();
+      for (int i = 1; i <= dpmf.iter_; i++) {
+        p.run(dpmf.data_in_fly_);
+        dpmf.finish_round(blocks_test, i);
+      }
+      fclose(f);
+    } else {
+      rc = errno;
+    }
+  }
+  return rc;
 }
 
 //assuming test, valid data can fit into RAM
-static void run(AdaptRegMF& admf) {
+static int run(AdaptRegMF& admf) {
+  int rc = 0;
   admf.init1();
   mf::Blocks blocks_test;
-  plain_read(admf.test_data_, blocks_test);
-  admf.plain_read_valid(admf.valid_data_);
-  FILE* f = fopen(admf.train_data_, "rb");
-  AdRegReadFilter read_f(admf, f, blocks_test);
-  ParseFilter parse_f(admf.data_in_fly_);
-  AdRegFilter admf_f(admf);
-  tbb::pipeline p;
-  p.add_filter(read_f);
-  p.add_filter(parse_f);
-  p.add_filter(admf_f);
-  s = Time::now();
-  p.run(admf.data_in_fly_);
-  fclose(f);
+  rc = plain_read(admf.test_data_, blocks_test);
+  if(!rc) {
+    admf.plain_read_valid(admf.valid_data_);
+    FILE *f = fopen(admf.train_data_, "rb");
+    if (f) {
+      AdRegReadFilter read_f(admf, f, blocks_test);
+      ParseFilter parse_f(admf.data_in_fly_);
+      AdRegFilter admf_f(admf);
+      tbb::pipeline p;
+      p.add_filter(read_f);
+      p.add_filter(parse_f);
+      p.add_filter(admf_f);
+      s = Time::now();
+      p.run(admf.data_in_fly_);
+      fclose(f);
+    } else {
+      rc = errno;
+    }
+  }
+  return rc;
 }
 
 int main(int argc, char** argv) {
@@ -140,6 +168,7 @@ int main(int argc, char** argv) {
     show_help();
     return 1;
   }
+  TimedScope timedScope;
   if(!alg || !*alg || !strcmp(alg, "mf")) {
     MF mf(train_data, test_data, result, model, dim, iter, eta, gam, lambda, \
               g_bias, nu, nv, fly, stride);

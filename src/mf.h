@@ -31,8 +31,11 @@ class SgdReadFilter: public tbb::filter {
     else {
       e = Time::now();
       int nn;
-      printf("iter#%d\t%f\ttRMSE=%f\n", iter_, std::chrono::duration<float>(e-s).count(),
-             sqrt(mf_.calc_mse(blocks_test_, nn)*1.0/nn));
+      printf("iter#%d\t%f\ttRMSE=%f\n",
+             iter_,
+             std::chrono::duration<float>(e - s).count(),
+             sqrt(mf_.calc_mse(blocks_test_, nn)*1.0/nn)
+      );
       //printf("iter#%d\t%f\n", iter_, std::chrono::duration<float>(e-s).count());
       if(iter_==mf_.iter_) {
         return NULL;

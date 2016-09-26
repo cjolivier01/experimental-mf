@@ -29,9 +29,14 @@ class AdRegReadFilter: public tbb::filter {
     else {
       e = Time::now();
       int nn;
-      printf("iter#%d\t%f\ttRMSE=%f\n",iter_,std::chrono::duration<float>(e-s).count(), sqrt(admf_.calc_mse(blocks_test_, nn)*1.0/nn));
-//printf("iter#%d\t%f\n", iter_, std::chrono::duration<float>(e-s).count());
-      if(iter_==admf_.iter_) return NULL;
+      printf("iter#%d\t%f\ttRMSE=%f\n",
+             iter_,
+             std::chrono::duration<float>(e - s).count(),
+             sqrt(admf_.calc_mse(blocks_test_, nn)*1.0 / nn)
+      );
+      //printf("iter#%d\t%f\n", iter_, std::chrono::duration<float>(e-s).count());
+      if(iter_==admf_.iter_)
+        return NULL;
       admf_.seteta(++iter_);
       admf_.set_etareg(iter_);
       fseek(fr_,0,SEEK_SET);
@@ -51,8 +56,8 @@ class AdRegReadFilter: public tbb::filter {
   FILE*          fr_;
   uint32         isize_;
   int            iter_,
-    index_,
-    pool_size_;
+                 index_,
+                 pool_size_;
 };
 
 class AdRegFilter: public tbb::filter {

@@ -14,6 +14,7 @@
 #include <atomic>
 #include <tbb/pipeline.h>
 #include <dmlc/logging.h>
+#include <sys/time.h>
 
 #include "blocks.pb.h"
 #ifdef __APPLE__
@@ -75,18 +76,27 @@ inline void align_alloc(float** u, int nu, int dim) {
     u[k*nn+i] = u[k*nn+i-1] + dim;
 }
 
-inline void plain_read(const char* data, mf::Blocks& blocks) {
+inline int plain_read(const char* data, mf::Blocks& blocks) {
+  int rc = 0;
   FILE* fr = fopen(data, "rb");
-  std::vector<char> buf;
-  uint32 isize;
-  mf::Block* bk;
-  while(fread(&isize, 1, sizeof(isize), fr)) {
-    buf.resize(isize);
-    fread((char*)buf.data(), 1, isize, fr);
-    bk = blocks.add_block();
-    bk->ParseFromArray(buf.data(), isize);
+  if(fr) {
+    std::vector<char> buf;
+    uint32 isize;
+    mf::Block *bk;
+    while (fread(&isize, 1, sizeof(isize), fr)) {
+      buf.resize(isize);
+      fread((char *) buf.data(), 1, isize, fr);
+      bk = blocks.add_block();
+      if(!bk->ParseFromArray(buf.data(), isize)) {
+        rc = EINVAL;
+        break;
+      }
+    }
+    fclose(fr);
+  } else {
+    rc = errno;
   }
-  fclose(fr);
+  return rc;
 }
 
 inline float active(float val, int type) {
@@ -174,5 +184,35 @@ inline void normsqr_col(float** m, int d, int size, float* norm) {
 inline int padding(int dim) {
   return ((dim*sizeof(float)-1)/CACHE_LINE_SIZE*CACHE_LINE_SIZE+CACHE_LINE_SIZE)/sizeof(float);
 }
+
+inline uint64_t getTickCount()
+{
+  struct timeval tv;
+  gettimeofday(&tv,NULL);
+  return uint64_t(tv.tv_sec)*1000 + (uint64_t(tv.tv_usec) / 1000);
+}
+
+class TimedScope {
+  std::string       label;
+  const uint64_t    startTime;
+ public:
+  TimedScope(const char *msg = NULL)
+    : startTime(getTickCount())
+  {
+    if(msg && *msg) {
+      label = msg;
+    }
+  }
+  uint64_t elapsed() const {
+    return getTickCount() - startTime;
+  }
+  ~TimedScope() {
+    const uint64_t diff = elapsed();
+    if(!label.empty()) {
+      std::cout << label << " ";
+    }
+    std::cout << "elapsed: " << diff << " ms" << std::endl;
+  }
+};
 
 #endif //_FAST_MF_UTIL_H

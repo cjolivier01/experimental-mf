@@ -7,8 +7,8 @@
 #include <algorithm>
 #include <unordered_map>
 #include <unistd.h>
-#include <sys/time.h>
 #include <cinttypes>
+#include "util.h"
 #include "blocks.pb.h"
 
 #define OFSTREAM_T   std::ofstream
@@ -167,7 +167,7 @@ static void write_by_dict(Dict& du, FILE* fp) {
     int u = it->first;
     fprintf(fp, "%d:\n", u);
     auto eles = it->second;
-    for(std::vector<std::pair<int, float>>::iterator vit=eles.begin(); vit!=eles.end(); vit++) {
+    for(std::vector<std::pair<int, float>>::iterator vit=eles.begin(), e = eles.end(); vit != e; ++vit) {
       int v = vit->first;
       float r = vit->second;
       fprintf(fp, "%d,%f\n", v, r);
@@ -175,39 +175,53 @@ static void write_by_dict(Dict& du, FILE* fp) {
   }
 }
 
-static int userwise(const char* write, std::vector<Tuple>& data, int nb, int nresd, int bk) {
-  int i;
-  FILE* fp = fopen(write, "w");
-  if(!fp)  {
-    fprintf(stderr, "Unable to open file for write: %s - %s\n", write, strerror(errno));
-    return errno;
-  }
-  for(i=0; i<bk-1; i++) {
-    Dict du;
-    for(int j=i*nb; j<i*nb+nb; j++) {
-      auto ele = data[j];
-      int u = std::get<0>(ele);
-      int v = std::get<1>(ele);
-      float r = std::get<2>(ele);
-      du[u].push_back(std::make_pair(v,r));
+static int userwise(const char* write,
+                    std::vector<Tuple>& data,
+                    size_t itemsPerSplit,
+                    size_t numRemainingAfterSplit,
+                    size_t numRatingMatrixSplits) {
+  int rc = 0;
+  if(!data.empty() && itemsPerSplit && numRatingMatrixSplits) {
+    size_t i;
+    FILE* fp = fopen(write, "w");
+    if (fp) {
+
+      for (i = 0; i < numRatingMatrixSplits - 1; ++i) {
+        Dict du;
+        const size_t count = i * itemsPerSplit + itemsPerSplit;
+        for (size_t j = i * itemsPerSplit; j < count; ++j) {
+          const auto &ele = data[j];
+          const int u = std::get<0>(ele);
+          const int v = std::get<1>(ele);
+          const float r = std::get<2>(ele);
+          du[u].push_back(std::make_pair(v, r));
+        }
+        // write to output file
+        write_by_dict(du, fp);
+      }
+      // make the last one hold the remainder
+      Dict du;
+      const size_t count = i * itemsPerSplit + itemsPerSplit + numRemainingAfterSplit;
+      CHECK_LE(count, data.size());
+      for (size_t j = i * itemsPerSplit; j < count; ++j) {
+        const auto &ele = data[j];
+        const int u = std::get<0>(ele);
+        const int v = std::get<1>(ele);
+        const float r = std::get<2>(ele);
+        du[u].push_back(std::make_pair(v, r));
+      }
+      // write to output file
+      write_by_dict(du, fp);
+      fclose(fp);
+    } else {
+      rc = errno;
+      fprintf(stderr, "Unable to open file for write: %s - %s\n", write, strerror(rc));
     }
-    //write
-    write_by_dict(du, fp);
+  } else {
+    fprintf(stderr, "Invalid argument(s)\n");
+    rc = EINVAL;
   }
-  {
-    Dict du;
-    for(int j=i*nb; j<i*nb+nb+nresd; j++) {
-      auto ele = data[j];
-      int u = std::get<0>(ele);
-      int v = std::get<1>(ele);
-      float r = std::get<2>(ele);
-      du[u].push_back(std::make_pair(v,r));
-    }
-    //write
-    write_by_dict(du, fp);
-  }
-  fclose(fp);
-  return 0;
+  return rc;
 }
 
 static int get_message(const char* read, const char* write)
@@ -304,14 +318,7 @@ class TempFile
   }
 };
 
-static uint64_t getTickCount()
-{
-  struct timeval tv;
-  gettimeofday(&tv,NULL);
-  return uint64_t(tv.tv_sec)*1000 + (uint64_t(tv.tv_usec) / 1000);
-}
-
-static int raw_to_protobuf(const char *fileIn, const char *fileOut, const size_t bk, const size_t maxRecords)
+static int raw_to_protobuf(const char *fileIn, const char *fileOut, const size_t numRatingMatrixSplits, const size_t maxRecords)
 {
   RandomMerger<std::string>::seedRandom();
   int rc = 0;
@@ -330,10 +337,10 @@ static int raw_to_protobuf(const char *fileIn, const char *fileOut, const size_t
       rc = read_raw(inFile, data, maxRecords);
       if(!rc) {
         totalCount += data.size();
-        size_t nn = data.size();
-        size_t nb = nn / bk;
-        size_t nresd = nn % bk;
-        rc = userwise(outFileName.c_str(), data, nb, nresd, bk);
+        const size_t dataItemCount = data.size();
+        size_t itemsPerSplit = dataItemCount / numRatingMatrixSplits;
+        size_t numRemainingAfterSplit = dataItemCount % numRatingMatrixSplits;
+        rc = userwise(outFileName.c_str(), data, itemsPerSplit, numRemainingAfterSplit, numRatingMatrixSplits);
         if(!rc) {
           std::cout << "Processed " << totalCount << " items...." << std::endl << std::flush;
         }
@@ -377,7 +384,7 @@ int main(int argc, char** argv) {
   const char *read   = NULL;
   const char *write  = NULL;
   const char *method = NULL;
-  int bk=1;
+  size_t numRatingMatrixSplits = 1;
   int rc = 0;
   size_t stageSize = DEFAULT_MAX_RECORDS;
   for(int i = 1; !rc && i < argc; ++i) {
@@ -399,7 +406,7 @@ int main(int argc, char** argv) {
     }
     else if (!strcmp(option, "--split")) {
       if (++i < argc) {
-        bk = atoi(argv[i]);
+        numRatingMatrixSplits = atoi(argv[i]);
       }
     }
     else if (!strcmp(option, "--size")) {
@@ -431,16 +438,16 @@ int main(int argc, char** argv) {
     } else {
       const uint64_t startTime = getTickCount();
       if(!strcmp(method, "raw2proto")) {
-        rc = raw_to_protobuf(read, write, bk, stageSize);
+        rc = raw_to_protobuf(read, write, numRatingMatrixSplits, stageSize);
       } else if (!strcmp(method, "userwise")) {
         std::vector<Tuple> data;
         rc = read_raw(read, data, ULONG_LONG_MAX);
         if(!rc) {
-          size_t nn = data.size();
-          size_t nb = nn / bk;
-          size_t nresd = nn % bk;
+          const size_t nn = data.size();
+          const size_t itemsPerSplit = nn / numRatingMatrixSplits;
+          const size_t numRemainingAfterSplit = nn % numRatingMatrixSplits;
           std::string tmp = write;
-          rc = userwise(tmp.c_str(), data, nb, nresd, bk);
+          rc = userwise(tmp.c_str(), data, itemsPerSplit, numRemainingAfterSplit, numRatingMatrixSplits);
         }
       } else if (!strcmp(method, "protobuf")) {
         rc = get_message(read, write);
