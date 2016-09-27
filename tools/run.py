@@ -1,8 +1,10 @@
 alg = 'mf'
+#alg = 'dpmf'
+#alg = 'admf'
 nu = 480189
 nv = 17770
-traindata='~/works/data/netflix_protobuf_train_4by500'
-testdata='~/works/data/netflix_protobuf_valid'
+traindata='/mnt/Terrace/coolivie/src/experimental-mf/data/netflix_mm.proto'
+testdata='/mnt/Terrace/coolivie/src/experimental-mf/data/netflix_mme.proto'
 #nu = 1000990
 #nv = 624961
 #traindata='~/works/data/yahoo_protobuf_train_4by500'
@@ -23,8 +25,9 @@ mineta=2e-13
 
 #admf
 eta_reg=2e-2
-validdata='~/works/data/netflix_protobuf_valid'
+#validdata='~/works/data/netflix_protobuf_valid'
 #validdata='~/works/data/yahoo_protobuf_valid'
+validdata='/mnt/Terrace/coolivie/src/experimental-mf/data/netflix_mme.proto'
 
 import os
 import sys

@@ -248,12 +248,17 @@ static int get_message(const char* read, const char* write)
   while (std::getline(ins, buf)) {
     const size_t len = buf.length();
     if(buf[len-1]==':') {
-      if(ii % block_size==0) {
+      if(ii % block_size == 0) {
         if(block.user_size() > 0) {
-          block.SerializeToString(&uncompressed_buffer);
-          const size_t uncompressed_size = uncompressed_buffer.size();
-          fwrite(&uncompressed_size, 1, sizeof(uncompressed_size), f_w);
-          fwrite(uncompressed_buffer.c_str(), 1, uncompressed_size, f_w);
+          if(block.SerializeToString(&uncompressed_buffer)) {
+            const uint32 uncompressed_size = uncompressed_buffer.size();
+            fwrite(&uncompressed_size, 1, sizeof(uncompressed_size), f_w);
+            fwrite(uncompressed_buffer.c_str(), 1, uncompressed_size, f_w);
+          } else {
+            fprintf(stderr, "Error serializing block to stream\n");
+            rc = EINVAL;
+            break;
+          }
         }
         block.Clear();
         user = block.add_user();
@@ -281,7 +286,7 @@ static int get_message(const char* read, const char* write)
   }
   if(!rc) {
     block.SerializeToString(&uncompressed_buffer);
-    const size_t uncompressed_size = uncompressed_buffer.size();
+    const uint32 uncompressed_size = uncompressed_buffer.size();
     fwrite(&uncompressed_size, 1, sizeof(uncompressed_size), f_w);
     fwrite(uncompressed_buffer.c_str(), 1, uncompressed_size, f_w);
     fclose(f_w);
@@ -436,7 +441,7 @@ int main(int argc, char** argv) {
       hint();
       rc = 1;
     } else {
-      const uint64_t startTime = getTickCount();
+      const uint64_t startTime = mf::getTickCount();
       if(!strcmp(method, "raw2proto")) {
         rc = raw_to_protobuf(read, write, numRatingMatrixSplits, stageSize);
       } else if (!strcmp(method, "userwise")) {
@@ -454,7 +459,7 @@ int main(int argc, char** argv) {
       } else {
         rc = 1;
       }
-      std::cout << "Process time: " << (getTickCount() - startTime) << " ms" << std::endl;
+      std::cout << "Process time: " << (mf::getTickCount() - startTime) << " ms" << std::endl;
     }
   }
   return rc;

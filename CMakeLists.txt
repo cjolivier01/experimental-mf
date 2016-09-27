@@ -59,6 +59,7 @@ if(NOT GTEST_ROOT)
 endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/src)
+include_directories(${PROJECT_BINARY_DIR}/src)
 
 # generate protobuf sources
 set(proto_gen_folder "${PROJECT_BINARY_DIR}/src")
@@ -120,7 +121,7 @@ set(fastmf_LINKER_LIBS ${fastmf_LINKER_LIBS} ${PROTOBUF_LIBRARIES})
 set(fastmf_LINKER_LIBS ${fastmf_LINKER_LIBS} dmlccore)
 
 list(APPEND SOURCE ${proto_srcs})
-add_library(fastmf ${SOURCE})
+add_library(fastmf ${SOURCE} src/blocking_queue.h src/filter_util.h)
 target_link_libraries(fastmf ${fastmf_LINKER_LIBS})
 
 add_executable(getdata data/getdata.cc)
