@@ -1,7 +1,9 @@
+#include <dmlc/io.h>
 #include "../src/model.h"
 #include "../src/mf.h"
 #include "../src/dpmf.h"
 #include "../src/admf.h"
+#include <blocks.pb.h>
 
 using namespace mf;
 
@@ -28,8 +30,8 @@ static void show_help() {
   printf("--epsilon    [float]   : sensitivity of differentially privacy.\n");
   printf("--tau        [int]     : maximum of ratings among all the users (usually after trimming your data).\n");
   printf("--temp       [float]   : temperature in SGLD (can accelerate the convergence).\n");
-  printf("--noise_size [int]     : the Gaussian numbers lookup table.\n");
-  printf("--eta_reg    [float]   : the learning rate for estimating regularization parameters.\n");
+  printf("--noise-size [int]     : the Gaussian numbers lookup table.\n");
+  printf("--eta-reg    [float]   : the learning rate for estimating regularization parameters.\n");
   printf("--loss       [int]     : the loss type can be {least square, 0-1 logistic regression}.\n");
   printf("--measure    [int]     : support RMSE.\n");
 }
@@ -50,15 +52,12 @@ static int run(MF& mf) {
     mf.read_model();
   }
 
-  // coolivie: TEMPORARY
-  //mf.data_in_fly_ = 1;
-
   mf::Blocks blocks_test;
   rc = plain_read(mf.test_data_, blocks_test);
   if(!rc) {
-    FILE *f = fopen(mf.train_data_, "rb");
-    if (f) {
-      SgdReadFilter read_f(mf, f, blocks_test);
+    std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(mf.train_data_));
+    if (f.get()) {
+      SgdReadFilter read_f(mf, f.get(), blocks_test);
       ParseFilter parse_f(mf.data_in_fly_, read_f);
       SgdFilter sgd_f(mf, parse_f);
       tbb::pipeline p;
@@ -67,7 +66,8 @@ static int run(MF& mf) {
       p.add_filter(sgd_f);
       // Check errors in reverse order
       p.run(mf.data_in_fly_);
-      fclose(f);
+      IF_CHECK_TIMING( read_f.printBlockedTime("read_f")   );
+      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f") );
       setOnError(sgd_f, rc);
       setOnError(parse_f, rc);
       setOnError(read_f, rc);
@@ -88,11 +88,11 @@ static int run(DPMF& dpmf) {
   mf::Blocks blocks_test;
   rc = plain_read(dpmf.test_data_, blocks_test);
   if(!rc) {
-    FILE *f = fopen(dpmf.train_data_, "rb");
-    if (f) {
-      SgldReadFilter read_f(dpmf, f);
+    std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_));
+    if (f.get()) {
+      SgldReadFilter read_f(dpmf, f.get());
       ParseFilter parse_f(dpmf.data_in_fly_, read_f);
-      SgldFilter sgld_f(dpmf);
+      SgldFilter sgld_f(dpmf, parse_f);
       tbb::pipeline p;
       p.add_filter(read_f);
       p.add_filter(parse_f);
@@ -102,7 +102,8 @@ static int run(DPMF& dpmf) {
         p.run(dpmf.data_in_fly_);
         dpmf.finish_round(blocks_test, i, s);
       }
-      fclose(f);
+      IF_CHECK_TIMING( read_f.printBlockedTime("read_f")   );
+      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f") );
       setOnError(sgld_f, rc);
       setOnError(parse_f, rc);
       setOnError(read_f, rc);
@@ -121,17 +122,18 @@ static int run(AdaptRegMF& admf) {
   rc = plain_read(admf.test_data_, blocks_test);
   if(!rc) {
     admf.plain_read_valid(admf.valid_data_);
-    FILE *f = fopen(admf.train_data_, "rb");
-    if (f) {
-      AdRegReadFilter read_f(admf, f, blocks_test);
+    std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_));
+    if (f.get()) {
+      AdRegReadFilter read_f(admf, f.get(), blocks_test);
       ParseFilter parse_f(admf.data_in_fly_, read_f);
-      AdRegFilter admf_f(admf);
+      AdRegFilter admf_f(admf, parse_f);
       tbb::pipeline p;
       p.add_filter(read_f);
       p.add_filter(parse_f);
       p.add_filter(admf_f);
       p.run(admf.data_in_fly_);
-      fclose(f);
+      IF_CHECK_TIMING( read_f.printBlockedTime("read_f")   );
+      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f") );
       setOnError(admf_f, rc);
       setOnError(parse_f, rc);
       setOnError(read_f, rc);
@@ -176,8 +178,8 @@ int main(int argc, char** argv) {
     else if(!strcmp(argv[i], "--hypera"))      hypera = atof(argv[++i]);
     else if(!strcmp(argv[i], "--hyperb"))      hyperb = atof(argv[++i]);
     else if(!strcmp(argv[i], "--temp"))        temp = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--noise_size"))  noise_size  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--eta_reg"))     eta_reg = atof(argv[++i]);
+    else if(!strcmp(argv[i], "--noise-size"))  noise_size  = atoi(argv[++i]);
+    else if(!strcmp(argv[i], "--eta-reg"))     eta_reg = atof(argv[++i]);
     else if(!strcmp(argv[i], "--loss"))        loss  = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--measure"))     measure  = atoi(argv[++i]);
     else {

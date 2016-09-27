@@ -232,7 +232,9 @@ void DPMF::init() {
   //noise
   noise_ = (float *) malloc(sizeof(float) * noise_size_);
 #pragma omp parallel for
-  for (int i = 0; i < noise_size_; i++) noise_[i] = gaussian(generator);
+  for (int i = 0; i < noise_size_; i++) {
+    noise_[i] = gaussian(generator);
+  }
   //sample train data and precompute weights according to training data
   sample_train_and_precompute_weight();
   //bookkeeping
@@ -241,9 +243,15 @@ void DPMF::init() {
   gcountv = new std::atomic<uint64>[nv_];
   gmutex = new std::mutex[nv_];
   //differentially private
-  if (tau_ <= 0) tau_ = nv_;
-  if (epsilon_ <= 0.0f) bound_ = 1.0f;
-  else bound_ = epsilon_ * 1.0 / (4.0 * 25.0 * tau_);
+  if (tau_ <= 0) {
+    tau_ = nv_;
+  }
+  if (epsilon_ <= 0.0f) {
+    bound_ = 1.0f;
+  }
+  else {
+    bound_ = epsilon_ * 1.0 / (4.0 * 25.0 * tau_);
+  }
   uniform_int_ = std::uniform_int_distribution<>(0, noise_size_ - tau_ * (dim_ + 1) - 1);
   assert(noise_size_ - tau_ * (dim_ + 1) > 10000);
 }

@@ -7,43 +7,49 @@
 namespace mf
 {
 
-class SgldReadFilter : public mf::ObjectPool<std::vector<char> >,
+class SgldReadFilter : public mf::ObjectPool< std::vector<char> >,
                        public mf::StatusStack,
                        public tbb::filter
 {
  public:
-  SgldReadFilter(DPMF &dpmf, FILE *fr)
+  SgldReadFilter(DPMF &dpmf, dmlc::SeekStream *fr)
     : mf::ObjectPool<std::vector<char> >(dpmf_.data_in_fly_ * 10)
       , tbb::filter(serial_in_order)
       , dpmf_(dpmf)
       , fr_(fr)
-      , index_(0) {
-    pool_.resize(dpmf_.data_in_fly_ * 10);
-    pool_size_ = pool_.size();
+      , stream_(std::unique_ptr<dmlc::istream>(new dmlc::istream(fr)))  {
   }
 
-  ~SgldReadFilter() {}
-
   void *operator()(void *) {
-    if (fread(&isize_, 1, sizeof(isize_), fr_)) {
-      pool_[index_].resize(isize_);
-      fread((char *) pool_[index_].data(), 1, isize_, fr_);
-      std::vector<char> &b = pool_[index_++];
-      index_ %= pool_size_;
-      return &b;
+    if(!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
+      std::vector<char> *pbuffer = allocateObject();
+      if(pbuffer) {
+        pbuffer->resize(isize_);
+        if(!stream_->read(pbuffer->data(), isize_).fail()) {
+          return pbuffer;
+        }
+        addStatus(IO_ERROR);
+        freeObject(pbuffer);
+      } else {
+        addStatus(POOL_ERROR);
+      }
     } else {
-      fseek(fr_, 0, SEEK_SET);
-      return NULL;
+      if(stream_->eof()) {
+        stream_.reset();
+        fr_->Seek(0);
+      }
+      else {
+        addStatus(IO_ERROR);
+      }
     }
+    return NULL;
   }
 
  public:
-  DPMF &dpmf_;
-  std::vector<std::vector<char> > pool_;
-  FILE *fr_;
-  int pool_size_;
-  int index_;
-  uint32 isize_;
+  DPMF &                          dpmf_;
+  dmlc::SeekStream *              fr_;
+  std::unique_ptr<dmlc::istream>  stream_;
+  uint32                          isize_;
 };
 
 
@@ -51,9 +57,10 @@ class SgldFilter : public mf::StatusStack,
                    public tbb::filter
 {
  public:
-  SgldFilter(DPMF &dpmf)
+  SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool)
     : tbb::filter(parallel)
-      , dpmf_(dpmf) {
+      , dpmf_(dpmf)
+      , free_block_pool_(free_block_pool) {
   }
 
   void *operator()(void *block) {
@@ -106,11 +113,13 @@ class SgldFilter : public mf::StatusStack,
         phiind = phiind + dpmf_.dim_ + 1;
       }
     }
+    free_block_pool_.freeObject(bk);
     return NULL;
   }
 
  private:
   DPMF&                         dpmf_;
+  mf::ObjectPool<mf::Block>&    free_block_pool_;
 };
 
 } // namespace mf

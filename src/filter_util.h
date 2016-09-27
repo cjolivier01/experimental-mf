@@ -41,6 +41,27 @@ class ObjectPool
     free_object_pool_.push(obj);
   }
 
+  IF_CHECK_TIMING(
+    void printBlockedTime(const std::string& label, bool reset = false) {
+      free_object_pool_.printBlockedTime(label, reset);
+    }
+  )
+
+//  class FreeScope {
+//    Object *    o_;
+//    ObjectPool& op_;
+//   public:
+//    inline FreeScope(Object *o, ObjectPool& op)
+//      : o_(o)
+//      , op_(op) {
+//    }
+//    inline ~FreeScope() {
+//      if(o_) {
+//        op_.freeObject(o_);
+//      }
+//    }
+//  };
+
  private:
   const size_t                pool_size_;
   mf::BlockingQueue<Object *> free_object_pool_;
@@ -54,7 +75,8 @@ class StatusStack {
   enum StatusCode {
     OK = 0,
     PARSE_ERROR = 0x81000000,
-    IO_ERROR
+    IO_ERROR,
+    POOL_ERROR
   };
 
   struct Status {

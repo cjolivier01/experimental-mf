@@ -7,63 +7,72 @@
 namespace mf
 {
 
-class AdRegReadFilter : public mf::ObjectPool<std::vector<char> >,
+class AdRegReadFilter : public mf::ObjectPool< std::vector<char> >,
                         public mf::StatusStack,
                         public tbb::filter
 {
  public:
-  AdRegReadFilter(AdaptRegMF &admf, FILE *fr, mf::Blocks &blocks_test)
+  AdRegReadFilter(AdaptRegMF &admf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test)
     : mf::ObjectPool<std::vector<char> >(admf_.data_in_fly_ * 10)
       , tbb::filter(serial_in_order)
       , admf_(admf)
       , blocks_test_(blocks_test)
       , fr_(fr)
+      , stream_(std::unique_ptr<dmlc::istream>(new dmlc::istream(fr)))
       , iter_(1)
-      , index_(0)
       , pass_(0) {
-    pool_.resize(admf_.data_in_fly_ * 10);
-    pool_size_ = pool_.size();
   }
 
   void *operator()(void *) {
-    if (fread(&isize_, 1, sizeof(isize_), fr_)) {
-      pool_[index_].resize(isize_);
-      fread((char *) pool_[index_].data(), 1, isize_, fr_);
-      std::vector<char> &b = pool_[index_++];
-      index_ %= pool_size_;
-      return &b;
+    std::vector<char> *pbuffer = allocateObject();
+    if(pbuffer) {
+      if (!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
+        pbuffer->resize(isize_);
+        if(!stream_->read(pbuffer->data(), isize_).fail()) {
+          return pbuffer;
+        }
+        addStatus(IO_ERROR);
+      } else {
+        if(stream_->eof()) {
+          int nn;
+          printf("iter#%d\t%f\ttRMSE=%f\n",
+                 iter_,
+                 std::chrono::duration<float>(Time::now() - s_).count(),
+                 sqrt(admf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+          );
+          pass_ = 0;
+          if (iter_ != admf_.iter_) {
+            admf_.seteta(++iter_);
+            admf_.set_etareg(iter_);
+            stream_.reset();
+            fr_->Seek(0);
+            stream_ = std::unique_ptr<dmlc::istream>(new dmlc::istream(fr_));
+            if(!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
+              pbuffer->resize(isize_);
+              if (!stream_->read(pbuffer->data(), isize_).fail()) {
+                return pbuffer;
+              }
+            }
+            addStatus(IO_ERROR);
+          }
+        } else {
+          addStatus(IO_ERROR);
+        }
+        freeObject(pbuffer);
+      }
     } else {
-      int nn;
-      printf("iter#%d\t%f\ttRMSE=%f\n",
-             iter_,
-             std::chrono::duration<float>(Time::now() - s_).count(),
-             sqrt(admf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-      );
-      pass_ = 0;
-      //printf("iter#%d\t%f\n", iter_, std::chrono::duration<float>(e-s).count());
-      if (iter_ == admf_.iter_)
-        return NULL;
-      admf_.seteta(++iter_);
-      admf_.set_etareg(iter_);
-      fseek(fr_, 0, SEEK_SET);
-      fread(&isize_, 1, sizeof(isize_), fr_);
-      pool_[index_].resize(isize_);
-      fread((char *) pool_[index_].data(), 1, isize_, fr_);
-      std::vector<char> &b = pool_[index_++];
-      index_ %= pool_size_;
-      return &b;
+      addStatus(POOL_ERROR);
     }
+    return NULL;
   }
 
  private:
   AdaptRegMF&                     admf_;
-  mf::Blocks&                     blocks_test_;
-  std::vector<std::vector<char> > pool_;
-  FILE *                          fr_;
+  const mf::Blocks&               blocks_test_;
+  dmlc::SeekStream *              fr_;
+  std::unique_ptr<dmlc::istream>  stream_;
   uint32                          isize_;
   int                             iter_;
-  int                             index_;
-  int                             pool_size_;
   std::atomic<int>                pass_;
   std::chrono::time_point<Time>   s_;
 };
@@ -73,8 +82,11 @@ class AdRegFilter : public mf::StatusStack,
 {
 
  public:
-  AdRegFilter(AdaptRegMF &model)
-    : tbb::filter(parallel), admf_(model) {}
+  AdRegFilter(AdaptRegMF &model, mf::ObjectPool<mf::Block> &free_block_pool)
+    : tbb::filter(parallel)
+      , admf_(model)
+      , free_block_pool_(free_block_pool)
+  {}
 
   void *operator()(void *block) {
     float q[admf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
@@ -111,11 +123,13 @@ class AdRegFilter : public mf::StatusStack,
       int ii = rand() % admf_.recsv_.size();
       admf_.updateReg(admf_.recsv_[ii].u_, admf_.recsv_[ii].v_, admf_.recsv_[ii].r_);
     }
+    free_block_pool_.freeObject(bk);
     return NULL;
   }
 
  private:
-  AdaptRegMF &admf_;
+  AdaptRegMF&                 admf_;
+  mf::ObjectPool<mf::Block>&  free_block_pool_;
 };
 
 } // namespace mf

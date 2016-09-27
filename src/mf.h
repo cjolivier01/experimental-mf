@@ -2,7 +2,7 @@
 #define _FASTMF_MF_H
 
 #include <thread>
-#include <unordered_set>
+#include <dmlc/io.h>
 #include "model.h"
 #include "blocks.pb.h"
 #include "filter_util.h"
@@ -16,12 +16,13 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
 {
 
  public:
-  SgdReadFilter(MF &mf, FILE *fr, const mf::Blocks &blocks_test)
+  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test)
     : mf::ObjectPool<std::vector<char> >(mf.data_in_fly_ * 10)
       , tbb::filter(serial_in_order)
       , mf_(mf)
       , blocks_test_(blocks_test)
       , fr_(fr)
+      , stream_(std::unique_ptr<dmlc::istream>(new dmlc::istream(fr)))
       , iter_(1)
       , pass_(0) {
   }
@@ -37,50 +38,57 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
     std::vector<char> *pbuffer = allocateObject();
     if (pbuffer) {
       std::vector<char> &buffer = *pbuffer;
-
-      if (fread(&isize_, 1, sizeof(isize_), fr_)) {
+      if (!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
         buffer.resize(isize_);
-        if (fread((char *) buffer.data(), 1, isize_, fr_) == isize_) {
+        if (!stream_->read(buffer.data(), isize_).fail()) {
           return pbuffer;
         }
         addStatus(IO_ERROR, "Error reading input data object");
         freeObject(pbuffer);
       } else {
-        int nn;
-        printf("iter#%d\t%f\ttRMSE=%f\n",
-               iter_,
-               std::chrono::duration<float>(Time::now() - s_).count(),
-               sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-        );
-        pass_ = 0;
-        //printf("iter#%d\t%f\n", iter_, std::chrono::duration<float>(e-s).count());
-
-        // Check if we reached the desired number of iterations
-        if (iter_ != mf_.iter_) {
-          mf_.seteta(++iter_);
-          // If IO problem, the last fread here will catch it
-          fseek(fr_, 0, SEEK_SET);
-          fread(&isize_, 1, sizeof(isize_), fr_);
-          buffer.resize(isize_);
-          if (fread(buffer.data(), 1, isize_, fr_) == isize_) {
-            return pbuffer;
+        if(stream_->eof()) {
+          int nn;
+          printf("iter#%d\t%f\ttRMSE=%f\n",
+                 iter_,
+                 std::chrono::duration<float>(Time::now() - s_).count(),
+                 sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+          );
+          IF_CHECK_TIMING(printBlockedTime("SgdReadFilter buffer queue blocked", false));
+          pass_ = 0;
+          // Check if we reached the desired number of iterations
+          if (iter_ != mf_.iter_) {
+            mf_.seteta(++iter_);
+            // If IO problem, the last fread here will catch it
+            stream_.reset();
+            fr_->Seek(0);
+            stream_ = std::unique_ptr<dmlc::istream>(new dmlc::istream(fr_));
+            stream_->read((char *) &isize_, sizeof(isize_));
+            buffer.resize(isize_);
+            if (!stream_->read(buffer.data(), isize_).fail()) {
+              return pbuffer;
+            }
+            addStatus(IO_ERROR, "Error reading input data object");
           }
-          addStatus(IO_ERROR, "Error reading input data object");
+        } else {
+          addStatus(IO_ERROR);
         }
-        freeObject(pbuffer);
       }
+      freeObject(pbuffer);
+    } else {
+      addStatus(POOL_ERROR);
     }
     return NULL;
   }
 
  private:
-  MF&               mf_;
-  const mf::Blocks& blocks_test_;
-  FILE *            fr_;
-  uint32            isize_;
-  int               iter_;
-  std::atomic<int>              pass_;
-  std::chrono::time_point<Time> s_;
+  MF&                             mf_;
+  const mf::Blocks&               blocks_test_;
+  dmlc::SeekStream *              fr_;
+  std::unique_ptr<dmlc::istream>  stream_;
+  uint32                          isize_;
+  int                             iter_;
+  std::atomic<int>                pass_;
+  std::chrono::time_point<Time>   s_;
 };
 
 class ParseFilter : public mf::ObjectPool<mf::Block>,
@@ -153,7 +161,7 @@ class SgdFilter : public mf::StatusStack,
         const int vid_fetch = rec_fetch.vid();
         prefetch_range((char*)(mf_.phi_[vid_fetch]), pad*sizeof(float));
 #endif
-        memset(q, 0.0, sizeof(float) * mf_.dim_);
+        memset(q, 0, sizeof(float) * mf_.dim_);
         const mf::User_Record &rec = user.record(j);
         vid = rec.vid();
         phi = (float *) __builtin_assume_aligned(mf_.phi_[vid], CACHE_LINE_SIZE);
@@ -191,7 +199,7 @@ class SgdFilter : public mf::StatusStack,
       }
     }
     // Return block to queue
-    mf::Block *b = (mf::Block *) block;
+    mf::Block *b = (mf::Block *)block;
     free_block_pool_.freeObject(b);
     return NULL;
   }
