@@ -8,7 +8,9 @@
 #include <queue>
 #include <mutex>
 #include <atomic>
+#include <iostream>
 #include <condition_variable>
+#include "perf.h"
 
 namespace mf
 {
@@ -21,6 +23,11 @@ namespace mf
 #define IF_CHECK_TIMING(__t$)
 #endif
 
+/**
+ * WeakSemaphore
+ * Simple semaphore which does not make any attempt to
+ * maintain lock/release order
+ */
 class WeakSemaphore
 {
  public:
@@ -56,7 +63,8 @@ class BlockingQueue
 {
  public:
   inline BlockingQueue()
-  IF_CHECK_TIMING( : blocked_time_(0) ) {
+  IF_CHECK_TIMING( : blocked_time_(0) )
+  {
   }
   inline ~BlockingQueue() {}
 
@@ -69,12 +77,10 @@ class BlockingQueue
   }
 
   Type pop() {
-    IF_CHECK_TIMING( const std::chrono::time_point<Time> start = Time::now(); )
+    IF_CHECK_TIMING( const uint64_t start = perf::getMicroTickCount(); )
     sema_.wait();
     std::unique_lock<std::mutex> lck(mutex_);
-    IF_CHECK_TIMING( { std::unique_lock<std::mutex> lk1(blocked_time_mutex_);
-                       blocked_time_ += Time::now() - start; }
-    )
+    IF_CHECK_TIMING( blocked_time_.fetch_add( perf::getMicroTickCount() - start ) );
     CHECK(!q_.empty());
     Type t = q_.front();
     q_.pop();
@@ -82,12 +88,10 @@ class BlockingQueue
   }
 
   Type &pop(Type &t) {
-    IF_CHECK_TIMING( const std::chrono::time_point<Time> start = Time::now(); )
+    IF_CHECK_TIMING( const uint64_t start = perf::getMicroTickCount(); )
     sema_.wait();
     std::unique_lock<std::mutex> lck(mutex_);
-    IF_CHECK_TIMING( { std::unique_lock<std::mutex> lk1(blocked_time_mutex_);
-                       blocked_time_ += Time::now() - start; }
-    )
+    IF_CHECK_TIMING( blocked_time_.fetch_add( perf::getMicroTickCount() - start ) );
     CHECK(!q_.empty());
     t = q_.front();
     q_.pop();
@@ -108,35 +112,29 @@ class BlockingQueue
 
   IF_CHECK_TIMING(
 
-  std::chrono::duration<float> getBlockedTime() const {
-    std::unique_lock<std::mutex> lk1(blocked_time_mutex_);
-    return blocked_time_;
+  uint64_t getBlockedTime() const {
+    return blocked_time_.load();
   }
 
   void printBlockedTime(const std::string& label, const bool reset) {
     if(!label.empty()) {
       std::cout << label << ": ";
     }
-    float dt;
-    {
-      std::unique_lock<std::mutex> lk1(blocked_time_mutex_);
-      dt = blocked_time_.count();
-      if(reset) {
-        blocked_time_ = std::chrono::duration<float>(0);
-      }
+    std::cout << perf::toString(MICRO2MSF(blocked_time_.load()))
+              << " ms" << std::endl << std::flush;
+    if(reset) {
+      blocked_time_.store(0);
     }
-    std::cout << dt << std::endl << std::flush;
   }
 
-  )
+  );
 
  private:
   mutable std::mutex            mutex_;
   WeakSemaphore                 sema_;
   std::queue<Type>              q_;
   IF_CHECK_TIMING(
-    std::mutex                    blocked_time_mutex_;
-    std::chrono::duration<float>  blocked_time_;
+    std::atomic<uint64_t>           blocked_time_;
   )
 };
 

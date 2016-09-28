@@ -3,9 +3,11 @@
 #include "../src/mf.h"
 #include "../src/dpmf.h"
 #include "../src/admf.h"
-#include <blocks.pb.h>
+#include "blocks.pb.h"
 
 using namespace mf;
+
+perf::TimingInstrument SgdReadFilter::timing_;
 
 static void show_help() {
   printf("Usage:\n");
@@ -193,7 +195,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   int rc = 0;
-  TimedScope timedScope;
+  perf::TimedScope timedScope;
   if(!alg || !*alg || !strcmp(alg, "mf")) {
     MF mf(train_data, test_data, result, model, dim, iter, eta, gam, lambda, \
               g_bias, nu, nv, fly, stride);

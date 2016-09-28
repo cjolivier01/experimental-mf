@@ -106,7 +106,7 @@ class AdRegFilter : public mf::StatusStack,
         cblas_scopy(admf_.dim_, admf_.theta_[uid], 1, admf_.theta_old_[uid], 1);
         cblas_scopy(admf_.dim_, admf_.phi_[vid], 1, admf_.phi_old_[vid], 1);
         float pred = active(
-          cblas_sdot(admf_.dim_, admf_.theta_[uid], 1, admf_.phi_[vid], 1) + admf_.bu_[uid] + admf_.bv_[vid] +
+          cblas_sdot(admf_.dim_, admf_.theta_[uid], 1, admf_.phi_[vid], 1) + admf_.user_array_[uid] + admf_.video_array_[vid] +
           admf_.gb_, admf_.loss_);
         float error = cal_grad(rating, pred, admf_.loss_);
         error = eta * error;
@@ -115,10 +115,10 @@ class AdRegFilter : public mf::StatusStack,
         cblas_saxpy(admf_.dim_, error, admf_.phi_[vid], 1, admf_.theta_[uid], 1);
         cblas_saxpy(admf_.dim_, 1.0f - eta * admf_.lam_v_, admf_.phi_[vid], 1, q, 1);
         cblas_scopy(admf_.dim_, q, 1, admf_.phi_[vid], 1);
-        admf_.bu_old_[uid] = admf_.bu_[uid];
-        admf_.bv_old_[vid] = admf_.bv_[vid];
-        admf_.bu_[uid] = (1.0f - eta * admf_.lam_bu_) * admf_.bu_[uid] + error;
-        admf_.bv_[vid] = (1.0f - eta * admf_.lam_bv_) * admf_.bv_[vid] + error;
+        admf_.bu_old_[uid] = admf_.user_array_[uid];
+        admf_.bv_old_[vid] = admf_.video_array_[vid];
+        admf_.user_array_[uid] = (1.0f - eta * admf_.lam_bu_) * admf_.user_array_[uid] + error;
+        admf_.video_array_[vid] = (1.0f - eta * admf_.lam_bv_) * admf_.video_array_[vid] + error;
       }
       int ii = rand() % admf_.recsv_.size();
       admf_.updateReg(admf_.recsv_[ii].u_, admf_.recsv_[ii].v_, admf_.recsv_[ii].r_);

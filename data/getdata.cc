@@ -112,8 +112,7 @@ class RandomMerger
 
 static std::vector<std::string>& tokenize(const std::string& str,
                                           const std::string& delimiters,
-                                          std::vector<std::string>& tokens
-) {
+                                          std::vector<std::string>& tokens) {
   tokens.reserve((tokens.size() + 4) << 1);
   std::string::size_type lastPos = str.find_first_not_of(delimiters, 0);
   std::string::size_type pos     = str.find_first_of(delimiters, lastPos);
@@ -166,9 +165,10 @@ static void write_by_dict(Dict& du, FILE* fp) {
     int u = it->first;
     fprintf(fp, "%d:\n", u);
     auto eles = it->second;
-    for(std::vector<std::pair<int, float>>::iterator vit=eles.begin(), e = eles.end(); vit != e; ++vit) {
-      int v = vit->first;
-      float r = vit->second;
+    for(std::vector<std::pair<int, float>>::iterator vit = eles.begin(), e = eles.end();
+        vit != e; ++vit) {
+      const int   v = vit->first;
+      const float r = vit->second;
       fprintf(fp, "%d,%f\n", v, r);
     }
   }
@@ -417,7 +417,7 @@ static void hint() {
   fprintf(stderr, "--method       [userwise/raw2proto/protobuf]\n");
   fprintf(stderr, "--split        [number_of_splits_for_rating_matrix]\thints: 1~10 splits are recommended\n");
   fprintf(stderr, "--size         [number_of_users_in_each_block]\thints: 1 fread reads 1 block each time\n");
-  fprintf(stderr, "--input-range  [input score inclusive range. Default: 0-5 \n");
+  fprintf(stderr, "--input-range  [input score inclusive range. Default: 0,5 \n");
   fprintf(stderr, "--output-range [output score inclusive range. low,high. Default: 0,5 \n");
 }
 

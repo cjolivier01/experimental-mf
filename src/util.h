@@ -1,5 +1,5 @@
-#ifndef _FAST_MF_UTIL_H
-#define _FAST_MF_UTIL_H
+#ifndef _FASTMF_UTIL_H
+#define _FASTMF_UTIL_H
 
 #include <omp.h>
 #include <stdio.h>
@@ -14,7 +14,8 @@
 #include <atomic>
 #include <tbb/pipeline.h>
 #include <dmlc/logging.h>
-#include <sys/time.h>
+#include <dmlc/io.h>
+#include "perf.h"
 
 #include "blocks.pb.h"
 #ifdef __APPLE__
@@ -81,23 +82,31 @@ inline void align_alloc(float **u, int nu, int dim) {
 
 inline int plain_read(const char *data, mf::Blocks &blocks) {
   int rc = 0;
-  FILE *fr = fopen(data, "rb");
-  if (fr) {
-    std::vector<char> buf;
-    uint32 isize;
-    mf::Block *bk;
-    while (fread(&isize, 1, sizeof(isize), fr)) {
-      buf.resize(isize);
-      fread((char *) buf.data(), 1, isize, fr);
-      bk = blocks.add_block();
-      if (!bk->ParseFromArray(buf.data(), isize)) {
-        rc = EINVAL;
-        break;
+  if(data) {
+    std::unique_ptr<dmlc::SeekStream> stream(dmlc::SeekStream::CreateForRead(data));
+    if (stream.get()) {
+      dmlc::istream input(stream.get(), 1 << 20);
+      std::vector<char> buf;
+      uint32 isize;
+      mf::Block *bk;
+      while(!input.read((char *)&isize, sizeof(isize)).fail()) {
+        buf.resize(isize);
+        if(!input.read(buf.data(), isize).fail()) {
+          bk = blocks.add_block();
+          if (!bk->ParseFromArray(buf.data(), isize)) {
+            rc = EINVAL;
+            break;
+          }
+        } else {
+          rc = EIO;
+          break;
+        }
       }
+    } else {
+      rc = errno;
     }
-    fclose(fr);
   } else {
-    rc = errno;
+    rc = EINVAL;
   }
   return rc;
 }
@@ -188,37 +197,14 @@ inline int padding(int dim) {
   return ((dim * sizeof(float) - 1) / CACHE_LINE_SIZE * CACHE_LINE_SIZE + CACHE_LINE_SIZE) / sizeof(float);
 }
 
-inline uint64_t getTickCount() {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return uint64_t(tv.tv_sec) * 1000 + (uint64_t(tv.tv_usec) / 1000);
+#ifndef NDEBUG
+inline bool isNan(const float& f) {
+  // nan has special property that it doesn't equal itself
+  // This can't be trusted with all compilers in release mode
+  return f != f;
 }
-
-class TimedScope
-{
-  std::string label;
-  const uint64_t startTime;
- public:
-  TimedScope(const char *msg = NULL)
-    : startTime(getTickCount()) {
-    if (msg && *msg) {
-      label = msg;
-    }
-  }
-
-  uint64_t elapsed() const {
-    return getTickCount() - startTime;
-  }
-
-  ~TimedScope() {
-    const uint64_t diff = elapsed();
-    if (!label.empty()) {
-      std::cout << label << " ";
-    }
-    std::cout << "elapsed time: " << diff << " ms" << std::endl;
-  }
-};
+#endif
 
 } // namespace mf
 
-#endif //_FAST_MF_UTIL_H
+#endif //_FASTMF_UTIL_H

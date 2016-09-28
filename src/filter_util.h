@@ -47,21 +47,6 @@ class ObjectPool
     }
   )
 
-//  class FreeScope {
-//    Object *    o_;
-//    ObjectPool& op_;
-//   public:
-//    inline FreeScope(Object *o, ObjectPool& op)
-//      : o_(o)
-//      , op_(op) {
-//    }
-//    inline ~FreeScope() {
-//      if(o_) {
-//        op_.freeObject(o_);
-//      }
-//    }
-//  };
-
  private:
   const size_t                pool_size_;
   mf::BlockingQueue<Object *> free_object_pool_;
