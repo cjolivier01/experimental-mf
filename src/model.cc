@@ -1,5 +1,6 @@
 #include <memory>
 #include "model.h"
+#include <dmlc/io.h>
 
 namespace mf
 {
@@ -11,58 +12,75 @@ std::normal_distribution<float> gaussian(0.0f, 1.0f);
 /* two chunks, read-only and frequent write, should be seperated.
    Align the address of write chunk to cache line */
 void MF::init() {
+
+  CHECK_EQ(std::atomic<float>().is_lock_free(), true);
+
   //alloc
-  bu_ = (float *) malloc((nu_ + nv_) * sizeof(float));
-  bv_ = bu_ + nu_;
+  user_array_ = (float *) malloc((nr_users_ + nr_videos_) * sizeof(float));
+  memset(user_array_, 0, (nr_users_ + nr_videos_) * sizeof(float));
+  video_array_ = user_array_ + nr_users_;
 
   const int pad = padding(dim_);
 
-  theta_ = (float **) malloc((nu_ + nv_) * sizeof(float *));
-  phi_ = theta_ + nu_;
-  align_alloc(theta_, nu_, pad);
-  align_alloc(phi_, nv_, pad);
+  theta_ = (float **) malloc((nr_users_ + nr_videos_) * sizeof(float *));
+  memset(theta_, 0, (nr_users_ + nr_videos_) * sizeof(float *));
+  phi_ = theta_ + nr_users_;
+  align_alloc(theta_, nr_users_, pad);
+  align_alloc(phi_, nr_videos_, pad);
   //init
+
 #pragma omp parallel for
-  for (int i = 0; i < nu_; i++) {
-    for (int j = 0; j < dim_; j++)
+  for (int i = 0; i < nr_users_; i++) {
+    for (int j = 0; j < dim_; j++) {
       theta_[i][j] = gaussian(generator) * 1e-2;
+    }
   }
 #pragma omp parallel for
-  for (int i = 0; i < nv_; i++) {
-    for (int j = 0; j < dim_; j++)
+  for (int i = 0; i < nr_videos_; i++) {
+    for (int j = 0; j < dim_; j++) {
       phi_[i][j] = gaussian(generator) * 1e-2;
+    }
   }
 #pragma omp parallel for
-  for (int i = 0; i < nu_ + nv_; i++) bu_[i] = gaussian(generator) * 1e-2;
+  for (int i = 0; i < nr_users_ + nr_videos_; i++) {
+    user_array_[i] = gaussian(generator) * 1e-2;
+  }
 }
 
 void MF::seteta(int round) {
   eta_ = (float) (eta0_ * 1.0 / pow(round, gam_));
 }
 
-
-float MF::calc_mse(const mf::Blocks &blocks, int &ndata) const {
+float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
   std::mutex mlock;
   const int bsize = blocks.block_size();
-  float sloss = 0.0;
-  ndata = 0;
+  volatile float sloss = 0.0;
+  volatile int ndata = 0;
 #pragma omp parallel for
   for (int i = 0; i < bsize; i++) {
     float sl = 0.0;
     int nn = 0;
     const mf::Block &bk = blocks.block(i);
-    int usize = bk.user_size();
+    const int usize = bk.user_size();
     for (int j = 0; j < usize; j++) {
       const mf::User &user = bk.user(j);
-      int uid = user.uid();
-      int rsize = user.record_size();
+      const int uid = user.uid();
+
+      CHECK_LT(uid, nr_users_);
+      CHECK_NE(isNan(user_array_[uid]), true);
+
+      const int rsize = user.record_size();
       nn += rsize;
       for (int k = 0; k < rsize; k++) {
         const mf::User_Record &rec = user.record(k);
-        int vid = rec.vid();
-        float rating = rec.rating();
-        float error = float(rating) - cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1)
-                      - bu_[uid] - bv_[vid] - gb_;
+        const int vid = rec.vid();
+        const float rating = rec.rating();
+
+        CHECK_LT(vid, nr_videos_);
+        CHECK_NE(isNan(video_array_[vid]), true);
+
+        const float error = rating - cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1)
+                            - user_array_[uid] - video_array_[vid] - gb_;
         sl += error * error;
       }
     }
@@ -71,163 +89,265 @@ float MF::calc_mse(const mf::Blocks &blocks, int &ndata) const {
     ndata += nn;
     mlock.unlock();
   }
+  return_ndata = ndata;
   return sloss;
 }
 
-void MF::read_model() {
-  FILE *fp = fopen(model_, "rb");
-  fread(&nv_, 1, sizeof(int), fp);
-  fread(&nu_, 1, sizeof(int), fp);
-  fread(&dim_, 1, sizeof(int), fp);
-  //read lambda
-  fread(&lambda_, 1, sizeof(float), fp);
-  //read gb
-  //fread(&gb,1,sizeof(float),fp);
-  //read v
-  for (int i = 0; i < nv_; i++) fread(&bv_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < nv_; i++) {
-    for (int j = 0; j < dim_; j++) {
-      fread(&phi_[i][j], 1, sizeof(float), fp);
+#define READVAR(__stream$, __v$) do { \
+    if((__stream$).read((char *)&(__v$), sizeof(__v$)).fail()) { \
+      return EIO; \
+    } \
+  } while(0)
+
+#define WRITEVAR(__stream$, __v$) do { \
+    if((__stream$).write((const char *)&(__v$), sizeof(__v$)).fail()) { \
+      return EIO; \
+    } \
+  } while(0)
+
+
+int MF::save_model(int round) {
+  int rc = 0;
+  if(result_ && *result_) {
+    std::string file = result_;
+    file += "_";
+    file += std::to_string(round);
+    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::Create(file.c_str(), "wb", true));
+    if (stream.get()) {
+      dmlc::ostream output(stream.get(), 1 << 20);
+      WRITEVAR(output, nr_users_);
+      WRITEVAR(output, nr_videos_);
+      WRITEVAR(output, dim_);
+      //write lambda
+      WRITEVAR(output, lambda_);
+      //write gb
+      //fwrite(&gb,1,sizeof(float),fp);
+      //write v
+      for (int i = 0; i < nr_videos_; i++) {
+        WRITEVAR(output, video_array_[i]);
+      }
+      for (int i = 0; i < nr_videos_; i++) {
+        for (int j = 0; j < dim_; j++) {
+          WRITEVAR(output, phi_[i][j]);
+        }
+      }
+      //write u
+      for (int i = 0; i < nr_users_; i++) {
+        WRITEVAR(output, user_array_[i]);
+      }
+
+      for (int i = 0; i < nr_users_; i++) {
+        for (int j = 0; j < dim_; j++) {
+          WRITEVAR(output, theta_[i][j]);
+        }
+      }
     }
   }
-  //read u
-  for (int i = 0; i < nu_; i++) fread(&bu_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < nu_; i++) {
-    for (int j = 0; j < dim_; j++) fread(&theta_[i][j], 1, sizeof(float), fp);
-  }
-  fclose(fp);
+  return rc;
 }
 
-void MF::save_model(int round) {
-  char file[256];
-  sprintf(file, "%s_%d", result_, round);
-  FILE *fp = fopen(file, "wb");
-  fwrite(&nv_, 1, sizeof(int), fp);
-  fwrite(&nu_, 1, sizeof(int), fp);
-  fwrite(&dim_, 1, sizeof(int), fp);
-  //write lambda
-  fwrite(&lambda_, 1, sizeof(float), fp);
-  //write gb
-  //fwrite(&gb,1,sizeof(float),fp);
-  //write v
-  for (int i = 0; i < nv_; i++) fwrite(&bv_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < nv_; i++) {
-    for (int j = 0; j < dim_; j++) {
-      fwrite(&phi_[i][j], 1, sizeof(float), fp);
+int MF::read_model() {
+  int rc = 0;
+  if(model_ && *model_) {
+    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(model_));
+    if (stream.get()) {
+      dmlc::istream input(stream.get(), 1 << 20);
+      READVAR(input, nr_videos_);
+      READVAR(input, nr_users_);
+      READVAR(input, dim_);
+      //read lambda
+      READVAR(input, lambda_);
+      //read gb
+      //fread(&gb,1,sizeof(float),fp);
+      //read v
+      for (int i = 0; i < nr_videos_; i++) {
+        READVAR(input, video_array_[i]);
+      }
+      for (int i = 0; i < nr_videos_; i++) {
+        for (int j = 0; j < dim_; j++) {
+          READVAR(input, phi_[i][j]);
+        }
+      }
+      //read u
+      for (int i = 0; i < nr_users_; i++) {
+        READVAR(input, user_array_[i]);
+      }
+      for (int i = 0; i < nr_users_; i++) {
+        for (int j = 0; j < dim_; j++) {
+          READVAR(input, theta_[i][j]);
+        }
+      }
+    } else {}
+    rc = EIO;
+  } else {
+    rc = EINVAL;
+  }
+  return rc;
+}
+
+int DPMF::save_model(int round) {
+  int rc = 0;
+  if(result_ && *result_) {
+    std::string file = result_;
+    file += "_";
+    file += std::to_string(round);
+    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::Create(file.c_str(), "wb", true));
+    if (stream.get()) {
+      dmlc::ostream output(stream.get(), 1 << 20);
+      WRITEVAR(output, nr_videos_);
+      WRITEVAR(output, nr_users_);
+      WRITEVAR(output, dim_);
+      //write lambda
+      WRITEVAR(output, lambda_r_);
+      WRITEVAR(output, lambda_ub_);
+      WRITEVAR(output, lambda_vb_);
+      for (int i = 0; i < dim_; i++) {
+        WRITEVAR(output, lambda_u_[i]);
+      }
+      for (int i = 0; i < dim_; i++) {
+        WRITEVAR(output, lambda_v_[i]);
+      }
+      //write gb
+      //fwrite(&gb,1,sizeof(float),fp);
+      //write v
+      for (int i = 0; i < nr_videos_; i++) {
+        WRITEVAR(output, video_array_[i]);
+      }
+      for (int i = 0; i < nr_videos_; i++) {
+        for (int j = 0; j < dim_; j++) {
+          WRITEVAR(output, phi_[i][j]);
+        }
+      }
+      //write u
+      for (int i = 0; i < nr_users_; i++) {
+        WRITEVAR(output, user_array_[i]);
+      }
+      for (int i = 0; i < nr_users_; i++) {
+        for (int j = 0; j < dim_; j++) {
+          WRITEVAR(output, theta_[i][j]);
+        }
+      }
+    } else {
+      rc = EIO;
     }
+  } else {
+    rc = EINVAL;
   }
-  //write u
-  for (int i = 0; i < nu_; i++) fwrite(&bu_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < nu_; i++) {
-    for (int j = 0; j < dim_; j++) fwrite(&theta_[i][j], 1, sizeof(float), fp);
-  }
-  fclose(fp);
+  return rc;
 }
 
-void DPMF::save_model(int round) {
-  char file[256];
-  sprintf(file, "%s_%d", result_, round);
-  FILE *fp = fopen(file, "wb");
-  fwrite(&nv_, 1, sizeof(int), fp);
-  fwrite(&nu_, 1, sizeof(int), fp);
-  fwrite(&dim_, 1, sizeof(int), fp);
-  //write lambda
-  fwrite(&lambda_r_, 1, sizeof(float), fp);
-  fwrite(&lambda_ub_, 1, sizeof(float), fp);
-  fwrite(&lambda_vb_, 1, sizeof(float), fp);
-  for (int i = 0; i < dim_; i++) fwrite(&lambda_u_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < dim_; i++) fwrite(&lambda_v_[i], 1, sizeof(float), fp);
-  //write gb
-  //fwrite(&gb,1,sizeof(float),fp);
-  //write v
-  for (int i = 0; i < nv_; i++) fwrite(&bv_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < nv_; i++) {
-    for (int j = 0; j < dim_; j++) {
-      fwrite(&phi_[i][j], 1, sizeof(float), fp);
+int DPMF::read_hyper() {
+  int rc = 0;
+  if(model_ && *model_) {
+    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(model_));
+    if (stream.get()) {
+      dmlc::istream input(stream.get(), 1 << 20);
+      READVAR(input, nr_videos_);
+      READVAR(input, nr_users_);
+      READVAR(input, dim_);
+      //read lambda
+      READVAR(input, lambda_r_);
+      READVAR(input, lambda_ub_);
+      READVAR(input, lambda_vb_);
+      for (int i = 0; i < dim_; i++) {
+        READVAR(input, lambda_u_[i]);
+      }
+      for (int i = 0; i < dim_; i++) {
+        READVAR(input, lambda_v_[i]);
+      }
+      //read gb
+      //fread(&gb,1,sizeof(float),fp);
+    } else {
+      rc = EIO;
     }
+  } else {
+    rc = EINVAL;
   }
-  //write u
-  for (int i = 0; i < nu_; i++) fwrite(&bu_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < nu_; i++) {
-    for (int j = 0; j < dim_; j++) fwrite(&theta_[i][j], 1, sizeof(float), fp);
-  }
-  fclose(fp);
+  return rc;
 }
 
-void DPMF::read_hyper() {
-  FILE *fp = fopen(model_, "rb");
-  fread(&nv_, 1, sizeof(int), fp);
-  fread(&nu_, 1, sizeof(int), fp);
-  fread(&dim_, 1, sizeof(int), fp);
-  //read lambda
-  fread(&lambda_r_, 1, sizeof(float), fp);
-  fread(&lambda_ub_, 1, sizeof(float), fp);
-  fread(&lambda_vb_, 1, sizeof(float), fp);
-  for (int i = 0; i < dim_; i++) fread(&lambda_u_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < dim_; i++) fread(&lambda_v_[i], 1, sizeof(float), fp);
-  //read gb
-  //fread(&gb,1,sizeof(float),fp);
-  fclose(fp);
-}
-
-void DPMF::read_model() {
-  FILE *fp = fopen(model_, "rb");
-  fread(&nv_, 1, sizeof(int), fp);
-  fread(&nu_, 1, sizeof(int), fp);
-  fread(&dim_, 1, sizeof(int), fp);
-  //read lambda
-  fread(&lambda_r_, 1, sizeof(float), fp);
-  fread(&lambda_ub_, 1, sizeof(float), fp);
-  fread(&lambda_vb_, 1, sizeof(float), fp);
-  for (int i = 0; i < dim_; i++) fread(&lambda_u_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < dim_; i++) fread(&lambda_v_[i], 1, sizeof(float), fp);
-  //read gb
-  //fread(&gb,1,sizeof(float),fp);
-  //read v
-  for (int i = 0; i < nv_; i++) fread(&bv_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < nv_; i++) {
-    for (int j = 0; j < dim_; j++) {
-      fread(&phi_[i][j], 1, sizeof(float), fp);
+int DPMF::read_model() {
+  int rc = 0;
+  if(model_ && *model_) {
+    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(model_));
+    if (stream.get()) {
+      dmlc::istream input(stream.get(), 1 << 20);
+      READVAR(input, nr_videos_);
+      READVAR(input, nr_users_);
+      READVAR(input, dim_);
+      //read lambda
+      READVAR(input, lambda_r_);
+      READVAR(input, lambda_ub_);
+      READVAR(input, lambda_vb_);
+      for (int i = 0; i < dim_; i++) {
+        READVAR(input, lambda_u_[i]);
+      }
+      for (int i = 0; i < dim_; i++) {
+        READVAR(input, lambda_v_[i]);
+      }
+      //read gb
+      //fread(&gb,1,sizeof(float),fp);
+      //read v
+      for (int i = 0; i < nr_videos_; i++) {
+        READVAR(input, video_array_[i]);
+      }
+      for (int i = 0; i < nr_videos_; i++) {
+        for (int j = 0; j < dim_; j++) {
+          READVAR(input, phi_[i][j]);
+        }
+      }
+      //read u
+      for (int i = 0; i < nr_users_; i++) {
+        READVAR(input, user_array_[i]);
+      }
+      for (int i = 0; i < nr_users_; i++) {
+        for (int j = 0; j < dim_; j++) {
+          READVAR(input, theta_[i][j]);
+        }
+      }
+    } else {
+      rc = EIO;
     }
+  } else {
+    rc = EINVAL;
   }
-  //read u
-  for (int i = 0; i < nu_; i++) fread(&bu_[i], 1, sizeof(float), fp);
-  for (int i = 0; i < nu_; i++) {
-    for (int j = 0; j < dim_; j++) fread(&theta_[i][j], 1, sizeof(float), fp);
-  }
-  fclose(fp);
+  return rc;
 }
 
 void DPMF::init() {
   //alloc
-  bu_ = (float *) malloc((2 * (nu_ + nv_) + 2 * dim_) * sizeof(float));
-  bv_ = bu_ + nu_;
-  ur_ = bv_ + nv_;
-  vr_ = ur_ + nu_;
-  lambda_u_ = vr_ + nv_;
+  user_array_ = (float *) malloc((2 * (nr_users_ + nr_videos_) + 2 * dim_) * sizeof(float));
+  video_array_ = user_array_ + nr_users_;
+  ur_ = video_array_ + nr_videos_;
+  vr_ = ur_ + nr_users_;
+  lambda_u_ = vr_ + nr_videos_;
   lambda_v_ = lambda_u_ + dim_;
 
   const int pad = padding(dim_);
 
-  theta_ = (float **) malloc((nu_ + nv_) * sizeof(float *));
-  phi_ = theta_ + nu_;
-  align_alloc(theta_, nu_, pad);
-  align_alloc(phi_, nv_, pad);
+  theta_ = (float **) malloc((nr_users_ + nr_videos_) * sizeof(float *));
+  phi_ = theta_ + nr_users_;
+  align_alloc(theta_, nr_users_, pad);
+  align_alloc(phi_, nr_videos_, pad);
 
   //init
 #pragma omp parallel for
-  for (int i = 0; i < nu_; i++) {
+  for (int i = 0; i < nr_users_; i++) {
     for (int j = 0; j < dim_; j++)
       theta_[i][j] = gaussian(generator) * 1e-2;
   }
 #pragma omp parallel for
-  for (int i = 0; i < nv_; i++) {
+  for (int i = 0; i < nr_videos_; i++) {
     for (int j = 0; j < dim_; j++)
       phi_[i][j] = gaussian(generator) * 1e-2;
   }
 #pragma omp parallel for
-  for (int i = 0; i < nu_ + nv_; i++) bu_[i] = gaussian(generator) * 1e-2;
-  for (int i = 0; i < 2 * dim_; i++) lambda_u_[i] = 1e2;
+  for (int i = 0; i < nr_users_ + nr_videos_; i++) {
+    user_array_[i] = gaussian(generator) * 1e-2;
+  }
+  for (int i = 0; i < 2 * dim_; i++) {
+    lambda_u_[i] = 1e2;
+  }
 
   //noise
   noise_ = (float *) malloc(sizeof(float) * noise_size_);
@@ -239,12 +359,12 @@ void DPMF::init() {
   sample_train_and_precompute_weight();
   //bookkeeping
   gcount = 0;
-  gcountu = new uint64[nu_]();
-  gcountv = new std::atomic<uint64>[nv_];
-  gmutex = new std::mutex[nv_];
+  gcountu = new uint64[nr_users_]();
+  gcountv = new std::atomic<uint64>[nr_videos_];
+  gmutex = new std::mutex[nr_videos_];
   //differentially private
   if (tau_ <= 0) {
-    tau_ = nv_;
+    tau_ = nr_videos_;
   }
   if (epsilon_ <= 0.0f) {
     bound_ = 1.0f;
@@ -272,46 +392,75 @@ void DPMF::block_count(int *uc, int *vc, mf::Block *bk) {
   }
 }
 
-#define DYNAMIC_ARRAY(__type$, __name$, __size$) \
-  __type$ *__name$ = (__type$ *) alloca((__size$) * sizeof(__type$)); \
-  memset((__name$), 0, (__size$) * sizeof(__type$));
+int DPMF::sample_train_and_precompute_weight() {
+  int rc = 0;
+  if(train_data_ && *train_data_) {
+    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(train_data_));
+    if (stream.get()) {
+      dmlc::istream input(stream.get(), 1 << 20);
+      uint32 isize;
+      mf::Block bk, *pbk;
+      std::vector<char> buf;
+      std::default_random_engine generator;
+      std::uniform_real_distribution<float> distribution(0.0, 1.0);
 
-void DPMF::sample_train_and_precompute_weight() {
-  FILE *f = fopen(train_data_, "rb");
-  uint32 isize;
-  mf::Block bk, *pbk;
-  std::vector<char> buf;
-  std::default_random_engine generator;
-  std::uniform_real_distribution<float> distribution(0.0, 1.0);
+      std::unique_ptr<int> _users(new int[nr_users_]);
+      int *users = _users.get();
+      std::unique_ptr<int> _vids(new int[nr_videos_]);
+      int *vids = _vids.get();
 
-  //int uc[nu_] = {0};
-  //int vc[nv_] = {0};
-
-  DYNAMIC_ARRAY(int, uc, nu_);
-  DYNAMIC_ARRAY(int, vc, nv_);
-
-  while (true) {
-    float ratio = distribution(generator);
-    if (ratio <= 1.0) {
-      pbk = train_sample_.add_block();
-      if (fread(&isize, 1, sizeof(isize), f)) {
-        buf.resize(isize);
-        fread((char *) buf.data(), 1, isize, f);
-        pbk->ParseFromArray(buf.data(), isize);
-        block_count(uc, vc, pbk);
-      } else break;
+      while(!rc) {
+        float ratio = distribution(generator);
+        if (ratio <= 1.0) {
+          pbk = train_sample_.add_block();
+          if(!input.read((char *)&isize, sizeof(isize)).fail()) {
+            buf.resize(isize);
+            if(!input.read(buf.data(), isize).fail()) {
+              if(pbk->ParseFromArray(buf.data(), isize)) {
+                block_count(users, vids, pbk);
+              } else {
+                rc = EINVAL;
+              }
+            } else {
+              rc = EIO;
+            }
+          } else {
+            rc = input.eof() ? 0 : EIO;
+            break;
+          }
+        } else {
+          if(!input.read((char *)&isize, sizeof(isize)).fail()) {
+            buf.resize(isize);
+            if(!input.read(buf.data(), isize).fail()) {
+              if(bk.ParseFromArray(buf.data(), isize)) {
+                block_count(users, vids, &bk);
+              } else {
+                rc = EINVAL;
+              }
+            } else {
+              rc = EIO;
+            }
+          } else {
+            rc = input.eof() ? 0 : EIO;
+            break;
+          }
+        }
+      }
+      if(!rc) {
+        for (int i = 0; i < nr_users_; i++) {
+          ur_[i] = (float) ntrain_ / users[i];
+        }
+        for (int i = 0; i < nr_videos_; i++) {
+          vr_[i] = (float) ntrain_ / vids[i];
+        }
+      }
     } else {
-      if (fread(&isize, 1, sizeof(isize), f)) {
-        buf.resize(isize);
-        fread((char *) buf.data(), 1, isize, f);
-        bk.ParseFromArray(buf.data(), isize);
-        block_count(uc, vc, &bk);
-      } else break;
+      rc = EIO;
     }
+  } else {
+    rc = EINVAL;
   }
-  for (int i = 0; i < nu_; i++) { ur_[i] = (float) ntrain_ / uc[i]; }
-  for (int i = 0; i < nv_; i++) { vr_[i] = (float) ntrain_ / vc[i]; }
-  fclose(f);
+  return rc;
 }
 
 void DPMF::finish_round(mf::Blocks &blocks_test, int round, const std::chrono::time_point<Time>& s) {
@@ -323,27 +472,29 @@ void DPMF::finish_round(mf::Blocks &blocks_test, int round, const std::chrono::t
   sample_hyper(mse);
   seteta_cutoff(round + 1);
   printf("%f\n", std::chrono::duration<float>(Time::now() - s).count());
-  if (round >= 100 && round % 20 == 0) save_model(round);
+  if (round >= 100 && round % 20 == 0) {
+    save_model(round);
+  }
 }
 
 void DPMF::finish_noise() {
   const int gc = gcount.load();
   int rndind;
 #pragma omp parallel for
-  for (int i = 0; i < nu_; i++) {
+  for (int i = 0; i < nr_users_; i++) {
     rndind = uniform_int_(generator);
     int uc = gc - gcountu[i];
     gcountu[i] = 0;
     cblas_saxpy(dim_, sqrt(temp_ * eta_ * uc), noise_ + rndind, 1, theta_[i], 1);
-    bu_[i] += sqrt(temp_ * eta_ * uc) * noise_[rndind + dim_];
+    user_array_[i] += sqrt(temp_ * eta_ * uc) * noise_[rndind + dim_];
   }
 #pragma omp parallel for
-  for (int i = 0; i < nv_; i++) {
+  for (int i = 0; i < nr_videos_; i++) {
     rndind = uniform_int_(generator);
     int vc = gc - gcountv[i].load();
     gcountv[i] = 0;
     cblas_saxpy(dim_, sqrt(temp_ * eta_ * vc), noise_ + rndind, 1, phi_[i], 1);
-    bv_[i] += sqrt(temp_ * eta_ * vc) * noise_[rndind + dim_];
+    video_array_[i] += sqrt(temp_ * eta_ * vc) * noise_[rndind + dim_];
   }
   gcount = 0;
 }
@@ -351,20 +502,17 @@ void DPMF::finish_noise() {
 
 void DPMF::sample_hyper(float mse) {
   gamma_posterior(lambda_r_, hyper_a_, hyper_b_, mse, ntrain_);
-  gamma_posterior(lambda_ub_, hyper_a_, hyper_b_, normsqr(bu_, nu_), nu_);
-  gamma_posterior(lambda_vb_, hyper_a_, hyper_b_, normsqr(bv_, nv_), nv_);
+  gamma_posterior(lambda_ub_, hyper_a_, hyper_b_, normsqr(user_array_, nr_users_), nr_users_);
+  gamma_posterior(lambda_vb_, hyper_a_, hyper_b_, normsqr(video_array_, nr_videos_), nr_videos_);
 
-  //float normu[dim_]={0.0}, normv[dim_]={0.0};
+  float normu[dim_]={0.0}, normv[dim_]={0.0};
 
-  DYNAMIC_ARRAY(float, normu, dim_);
-  DYNAMIC_ARRAY(float, normv, dim_);
-
-  normsqr_col(theta_, dim_, nu_, normu);
-  normsqr_col(phi_, dim_, nv_, normv);
+  normsqr_col(theta_, dim_, nr_users_, normu);
+  normsqr_col(phi_, dim_, nr_videos_, normv);
 #pragma omp parallel for
   for (int i = 0; i < dim_; i++) {
-    gamma_posterior(lambda_u_[i], hyper_a_, hyper_b_, normu[i], nu_);
-    gamma_posterior(lambda_v_[i], hyper_a_, hyper_b_, normv[i], nv_);
+    gamma_posterior(lambda_u_[i], hyper_a_, hyper_b_, normu[i], nr_users_);
+    gamma_posterior(lambda_v_[i], hyper_a_, hyper_b_, normv[i], nr_videos_);
   }
 }
 
@@ -378,30 +526,30 @@ void AdaptRegMF::init1() {
 
   const int pad = padding(dim_);
 
-  bu_old_ = (float *) malloc((nu_ + nv_) * sizeof(float));
-  bv_old_ = bu_old_ + nu_;
+  bu_old_ = (float *) malloc((nr_users_ + nr_videos_) * sizeof(float));
+  bv_old_ = bu_old_ + nr_users_;
 
-  theta_old_ = (float **) malloc((nu_ + nv_) * sizeof(float *));
-  phi_old_ = theta_old_ + nu_;
-  align_alloc(theta_old_, nu_, pad);
-  align_alloc(phi_old_, nv_, pad);
+  theta_old_ = (float **) malloc((nr_users_ + nr_videos_) * sizeof(float *));
+  phi_old_ = theta_old_ + nr_users_;
+  align_alloc(theta_old_, nr_users_, pad);
+  align_alloc(phi_old_, nr_videos_, pad);
 
   //init
 #pragma omp parallel for
-  for (int i = 0; i < nu_; i++) {
+  for (int i = 0; i < nr_users_; i++) {
     for (int j = 0; j < dim_; j++) {
       theta_old_[i][j] = theta_[i][j];
     }
   }
 #pragma omp parallel for
-  for (int i = 0; i < nv_; i++) {
+  for (int i = 0; i < nr_videos_; i++) {
     for (int j = 0; j < dim_; j++) {
       phi_old_[i][j] = phi_[i][j];
     }
   }
 #pragma omp parallel for
-  for (int i = 0; i < nu_ + nv_; i++) {
-    bu_old_[i] = bu_[i];
+  for (int i = 0; i < nr_users_ + nr_videos_; i++) {
+    bu_old_[i] = user_array_[i];
   }
 }
 
@@ -409,31 +557,47 @@ void AdaptRegMF::set_etareg(int round) {
   eta_reg_ = (float) (eta0_reg_ * 1.0 / pow(round, gam_));
 }
 
-void AdaptRegMF::plain_read_valid(const char *valid) {
-  FILE *f = fopen(valid, "rb");
-  std::vector<char> buf;
-  uint32 isize;
-  mf::Block bk;
-  Record rr;
-  while (fread(&isize, 1, sizeof(isize), f)) {
-    buf.resize(isize);
-    fread((char *) buf.data(), 1, isize, f);
-    bk.ParseFromArray(buf.data(), isize);
-    for (int i = 0; i < bk.user_size(); i++) {
-      const mf::User &user = bk.user(i);
-      const int uid = user.uid();
-      for (int j = 0; j < user.record_size(); j++) {
-        const mf::User_Record &rec = user.record(j);
-        rr.u_ = uid;
-        rr.v_ = (int) rec.vid();
-        rr.r_ = (float) rec.rating();
-        recsv_.push_back(rr);
+int AdaptRegMF::plain_read_valid(const char *valid) {
+  int rc = 0;
+  if(valid && *valid) {
+    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(valid));
+    if (stream.get()) {
+      dmlc::istream input(stream.get(), 1 << 20);
+      std::vector<char> buf;
+      uint32 isize;
+      mf::Block bk;
+      Record rr;
+      while (!input.read((char *)&isize, sizeof(isize)).fail()) {
+        buf.resize(isize);
+        if(!input.read(buf.data(), isize).fail()) {
+          bk.ParseFromArray(buf.data(), isize);
+          for (int i = 0; i < bk.user_size(); i++) {
+            const mf::User &user = bk.user(i);
+            const int uid = user.uid();
+            for (int j = 0; j < user.record_size(); j++) {
+              const mf::User_Record &rec = user.record(j);
+              rr.u_ = uid;
+              rr.v_ = (int) rec.vid();
+              rr.r_ = rec.rating();
+              recsv_.push_back(rr);
+            }
+          }
+          bk.Clear();
+        } else {
+          rc = EIO;
+          break;
+        }
       }
+      if(!rc) {
+        std::random_shuffle(recsv_.begin(), recsv_.end());
+      }
+    } else {
+      rc = EIO;
     }
-    bk.Clear();
+  } else {
+    rc = EINVAL;
   }
-  std::random_shuffle(recsv_.begin(), recsv_.end());
-  fclose(f);
+  return rc;
 }
 
 } //namespace mf

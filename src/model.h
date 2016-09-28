@@ -1,5 +1,5 @@
-#ifndef _FAST_MF_MODEL_H
-#define _FAST_MF_MODEL_H
+#ifndef _FASTMF_MODEL_H
+#define _FASTMF_MODEL_H
 
 #include "util.h"
 
@@ -14,8 +14,8 @@ class MF
      int nu, int nv, int fly, int stride)
     : theta_(NULL)
       , phi_(NULL)
-      , bu_(NULL)
-      , bv_(NULL)
+      , user_array_(NULL)
+      , video_array_(NULL)
       , train_data_(train_data)
       , test_data_(test_data)
       , result_(result)
@@ -27,31 +27,45 @@ class MF
       , gam_(gam)
       , lambda_(lambda)
       , eta0_(eta)
-      , nu_(nu)
-      , nv_(nv)
+      , nr_users_(nu)
+      , nr_videos_(nv)
       , data_in_fly_(fly)
       , prefetch_stride_(stride) {}
 
   ~MF() {
-    mkl_free(theta_[0]), free(theta_), free(bu_);
+    if(theta_) {
+#pragma omp parallel for
+      for (int x = 0; x < nr_users_; ++x) {
+        mkl_free(theta_[x]);
+      }
+    }
+#pragma omp parallel for
+    if(phi_) {
+      for (int x = 0; x < nr_videos_; ++x) {
+        mkl_free(phi_[x]);
+      }
+    }
+
+    free(theta_);
+    free(user_array_);
   }
 
   void init();
 
   float calc_mse(const mf::Blocks &blocks, int &ndata) const;
 
-  void read_model(); // TODO: coolivie: Should this be virtual?
-  void save_model(int round);
+  int read_model(); // TODO: coolivie: Should this be virtual?
+  int save_model(int round);
 
   void seteta(int round);
 
-  float **theta_, **phi_, *bu_, *bv_;
+  float **theta_, **phi_, *user_array_, *video_array_;
   const char *const train_data_, *const test_data_, *const result_, *const model_;
   float gb_;
   int dim_, iter_;
   std::atomic<float> eta_, gam_;
   float lambda_, eta0_;
-  int nu_, nv_, data_in_fly_, prefetch_stride_;//48B
+  int nr_users_, nr_videos_, data_in_fly_, prefetch_stride_;//48B
 };
 
 class DPMF : public MF
@@ -78,7 +92,7 @@ class DPMF : public MF
       , ntest_(0) {}
 
   ~DPMF() {
-    free(theta_[0]), free(theta_), free(bu_), free(noise_);
+    free(theta_[0]), free(theta_), free(user_array_), free(noise_);
     delete[] gcountu;
     delete[] gcountv;
     delete[] gmutex;
@@ -88,15 +102,15 @@ class DPMF : public MF
 
   void block_count(int *uc, int *vc, mf::Block *bk);
 
-  void sample_train_and_precompute_weight();
+  int sample_train_and_precompute_weight();
 
   void seteta_cutoff(int round);
 
-  void read_model();
+  int read_model();
 
-  void read_hyper();
+  int read_hyper();
 
-  void save_model(int round);
+  int save_model(int round);
 
   void finish_noise();
 
@@ -149,7 +163,7 @@ class AdaptRegMF : public MF
   void init1();
 
   inline void updateReg(int uid, int vid, float rating) {
-    float pred = active(cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1) + bu_[uid] + bv_[vid] + gb_, loss_);
+    float pred = active(cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1) + user_array_[uid] + video_array_[vid] + gb_, loss_);
     float grad = cal_grad(rating, pred, loss_);
     updateUV(grad, uid, vid);
     updateBias(grad, uid, vid);
@@ -169,7 +183,7 @@ class AdaptRegMF : public MF
 
   void set_etareg(int round);
 
-  void plain_read_valid(const char *valid);
+  int plain_read_valid(const char *valid);
 
   std::vector<Record> recsv_;
   float **theta_old_, **phi_old_, *bu_old_, *bv_old_;
@@ -188,4 +202,4 @@ class AdaptRegMF : public MF
 
 } // namespace mf
 
-#endif //_FAST_MF_MODEL_H
+#endif //_FASTMF_MODEL_H
