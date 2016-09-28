@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <unordered_map>
 #include <unistd.h>
-#include <cinttypes>
 #include "util.h"
 #include "blocks.pb.h"
 
@@ -224,7 +223,30 @@ static int userwise(const char* write,
   return rc;
 }
 
-static int get_message(const char* read, const char* write)
+struct RangeConverter
+{
+  struct Range
+  {
+    int low_, hi_; // inclusive
+    int range() const { return hi_ - low_; }
+  };
+  Range from_;
+  Range to_;
+  bool scale(const float fIn, float& fOut) const {
+    CHECK_GT(from_.hi_, from_.low_) << "Invalid range: low = " <<
+                                    from_.low_ << ", high = " << from_.hi_;
+    CHECK_GT(to_.hi_, to_.low_)     << "Invalid range: low = " <<
+                                    to_.low_ << ", high = " << to_.hi_;
+    if(fIn < from_.low_ || fIn > from_.hi_) {
+      return false;
+    }
+    const float pct = (fIn - from_.low_) / from_.range();
+    fOut = (pct * to_.range()) + to_.low_;
+    return true;
+  }
+};
+
+static int get_message(const char* read, const char* write, const RangeConverter& ranges)
 {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
   std::ifstream ins(read);
@@ -282,7 +304,15 @@ static int get_message(const char* read, const char* write)
       break;
     }
     record->set_vid(vid);
-    record->set_rating(rating);
+
+    float scaledRating;
+    if(!ranges.scale(rating, scaledRating)) {
+      LOG(WARNING) << "Out of range input score: " << rating;
+      continue;
+    }
+    CHECK_GE(scaledRating, ranges.to_.low_);
+    CHECK_LE(scaledRating, ranges.to_.hi_);
+    record->set_rating(scaledRating);
   }
   if(!rc) {
     block.SerializeToString(&uncompressed_buffer);
@@ -323,7 +353,11 @@ class TempFile
   }
 };
 
-static int raw_to_protobuf(const char *fileIn, const char *fileOut, const size_t numRatingMatrixSplits, const size_t maxRecords)
+static int raw_to_protobuf(const char *fileIn,
+                           const char *fileOut,
+                           const size_t numRatingMatrixSplits,
+                           const size_t maxRecords,
+                           const RangeConverter& ranges)
 {
   RandomMerger<std::string>::seedRandom();
   int rc = 0;
@@ -370,25 +404,32 @@ static int raw_to_protobuf(const char *fileIn, const char *fileOut, const size_t
                                                   }
     );
     if(!rc) {
-      rc = get_message(userwiseStage.getName().c_str(), fileOut);
+      rc = get_message(userwiseStage.getName().c_str(), fileOut, ranges);
     }
   }
   return rc;
 }
 
 static void hint() {
-  fprintf(stderr, "-i           [input_file_name]\n");
-  fprintf(stderr, "-o           [output_file_name]\n");
-  fprintf(stderr, "--stage-size [number of records to split up between stages (for huge files). Default: %" PRIu64 "\n", DEFAULT_MAX_RECORDS);
-  fprintf(stderr, "--method     [userwise/raw2proto/protobuf]\n");
-  fprintf(stderr, "--split      [number_of_splits_for_rating_matrix]\thints: 1~10 splits are recommended\n");
-  fprintf(stderr, "--size       [number_of_users_in_each_block]\thints: 1 fread reads 1 block each time\n");
+  fprintf(stderr, "-i             [input_file_name]\n");
+  fprintf(stderr, "-o             [output_file_name]\n");
+  fprintf(stderr, "--stage-size   [number of records to split up between stages (for huge files). Default: %" PRIu64 "\n", DEFAULT_MAX_RECORDS);
+  fprintf(stderr, "--method       [userwise/raw2proto/protobuf]\n");
+  fprintf(stderr, "--split        [number_of_splits_for_rating_matrix]\thints: 1~10 splits are recommended\n");
+  fprintf(stderr, "--size         [number_of_users_in_each_block]\thints: 1 fread reads 1 block each time\n");
+  fprintf(stderr, "--input-range  [input score inclusive range. Default: 0-5 \n");
+  fprintf(stderr, "--output-range [output score inclusive range. low,high. Default: 0,5 \n");
 }
 
 int main(int argc, char** argv) {
   const char *read   = NULL;
   const char *write  = NULL;
   const char *method = NULL;
+
+  RangeConverter ranges;
+  ranges.from_.low_ = ranges.to_.low_ = 0;
+  ranges.from_.hi_  = ranges.to_.hi_  = 5;
+
   size_t numRatingMatrixSplits = 1;
   int rc = 0;
   size_t stageSize = DEFAULT_MAX_RECORDS;
@@ -427,6 +468,30 @@ int main(int argc, char** argv) {
           rc = EINVAL;
         }
       }
+    } else if(!strcmp(option, "--input-range")) {
+      if (++i < argc) {
+        const std::string s = argv[i];
+        int lo, hi;
+        if(s.empty() || sscanf(s.c_str(), "%d,%d", &lo, &hi) != 2 || lo >= hi) {
+          std::cerr << "Invalid input range: " << s << std::endl;
+          rc = EINVAL;
+        } else {
+          ranges.from_.low_ = lo;
+          ranges.from_.hi_  = hi;
+        }
+      }
+    } else if(!strcmp(option, "--output-range")) {
+      if (++i < argc) {
+        const std::string s = argv[i];
+        int lo, hi;
+        if(s.empty() || sscanf(s.c_str(), "%d,%d", &lo, &hi) != 2 || lo >= hi) {
+          std::cerr << "Invalid output range: " << s << std::endl;
+          rc = EINVAL;
+        } else {
+          ranges.to_.low_ = lo;
+          ranges.to_.hi_  = hi;
+        }
+      }
     }
     else {
       fprintf(stderr, "Unknown parameter: \"%s\"\n\n", option);
@@ -441,9 +506,9 @@ int main(int argc, char** argv) {
       hint();
       rc = 1;
     } else {
-      const uint64_t startTime = mf::getTickCount();
+      const uint64_t startTime = mf::perf::getTickCount();
       if(!strcmp(method, "raw2proto")) {
-        rc = raw_to_protobuf(read, write, numRatingMatrixSplits, stageSize);
+        rc = raw_to_protobuf(read, write, numRatingMatrixSplits, stageSize, ranges);
       } else if (!strcmp(method, "userwise")) {
         std::vector<Tuple> data;
         rc = read_raw(read, data, ULONG_LONG_MAX);
@@ -455,11 +520,11 @@ int main(int argc, char** argv) {
           rc = userwise(tmp.c_str(), data, itemsPerSplit, numRemainingAfterSplit, numRatingMatrixSplits);
         }
       } else if (!strcmp(method, "protobuf")) {
-        rc = get_message(read, write);
+        rc = get_message(read, write, ranges);
       } else {
         rc = 1;
       }
-      std::cout << "Process time: " << (mf::getTickCount() - startTime) << " ms" << std::endl;
+      std::cout << "Process time: " << (mf::perf::getTickCount() - startTime) << " ms" << std::endl;
     }
   }
   return rc;
