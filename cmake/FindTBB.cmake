@@ -15,7 +15,7 @@
 
 # ---[ Root folders
 set(INTEL_ROOT "/opt/intel" CACHE PATH "Folder contains intel libs")
-find_path(TBB_ROOT include/tbb/tbb.h PATHS $ENV{TBB_ROOT} ${INTEL_ROOT}/tbb
+find_path(TBB_ROOT include/tbb/tbb.h PATHS $ENV{TBB_ROOT} ${INTEL_ROOT}/tbb /usr
   DOC "Folder contains TBB")
 
 
@@ -26,7 +26,7 @@ find_path(TBB_INCLUDE_DIR tbb/tbb.h PATHS ${TBB_ROOT} PATH_SUFFIXES include)
 set(__looked_for TBB_INCLUDE_DIR)
 
 # ---[ Find lib dir
-find_path(TBB_LIB_DIR libtbb.so PATHS ${TBB_ROOT} PATH_SUFFIXES lib/intel64/gcc4.4/)
+find_path(TBB_LIB_DIR libtbb.so PATHS ${TBB_ROOT} PATH_SUFFIXES lib/intel64/gcc4.4/ lib/)
 set(__looked_for TBB_LIB_DIR)
 
 #message(STATUS "TBB_LIB_DIR: " "${TBB_LIB_DIR}")
