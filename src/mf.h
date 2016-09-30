@@ -62,19 +62,19 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
                  std::chrono::duration<float>(Time::now() - s_).count(),
                  sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
           );
-          printf("iter#%d\t%f\ttRMSE=%f\n",
-                 iter_,
-                 MICRO2SF(timing_.getDuration(TIMING_READ)),
-                 sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-          );
-          printf("iter#%d\t%f\ttRMSE=%f\n",
-                 iter_,
-                 in_time_.count(),
-                 sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-          );
+//          printf("iter#%d\t%f\ttRMSE=%f\n",
+//                 iter_,
+//                 MICRO2SF(timing_.getDuration(TIMING_READ)),
+//                 sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+//          );
+//          printf("iter#%d\t%f\ttRMSE=%f\n",
+//                 iter_,
+//                 in_time_.count(),
+//                 sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+//          );
           timing_.print(true);
           IF_CHECK_TIMING(printBlockedTime("SgdReadFilter buffer queue blocked", false));
-          pass_ = 0;
+          //pass_ = 0;
           // Check if we reached the desired number of iterations
           if (iter_ != mf_.iter_) {
             mf_.seteta(++iter_);
