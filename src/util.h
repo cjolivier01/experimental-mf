@@ -72,12 +72,24 @@ inline void align_alloc(float **u, int nu, int dim) {
   int k;
   for (k = 0; k < piece - 1; k++) {
     u[k * nn] = (float *) mkl_malloc(nn * dim * sizeof(float), CACHE_LINE_SIZE);
-    for (int i = 1; i < nn; i++)
+    for (int i = 1; i < nn; i++) {
       u[k * nn + i] = u[k * nn + i - 1] + dim;
+    }
   }
   u[k * nn] = (float *) mkl_malloc((nn + nu % piece) * dim * sizeof(float), CACHE_LINE_SIZE);
-  for (int i = 1; i < nn + nu % piece; i++)
+  for (int i = 1; i < nn + nu % piece; i++) {
     u[k * nn + i] = u[k * nn + i - 1] + dim;
+  }
+}
+
+inline void free_aligned_alloc(float **u, int nu) {
+  const int piece = nu / 1050000 + 1;
+  const int nn = nu / piece;
+  int k;
+  for (k = 0; k < piece - 1; k++) {
+    mkl_free(u[k * nn]);
+  }
+  mkl_free(u[k * nn]);
 }
 
 inline int plain_read(const char *data, mf::Blocks &blocks) {
@@ -197,13 +209,11 @@ inline int padding(int dim) {
   return ((dim * sizeof(float) - 1) / CACHE_LINE_SIZE * CACHE_LINE_SIZE + CACHE_LINE_SIZE) / sizeof(float);
 }
 
-#ifndef NDEBUG
 inline bool isNan(const float& f) {
   // nan has special property that it doesn't equal itself
   // This can't be trusted with all compilers in release mode
   return f != f;
 }
-#endif
 
 } // namespace mf
 

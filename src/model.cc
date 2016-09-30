@@ -67,7 +67,7 @@ float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
       const int uid = user.uid();
 
       CHECK_LT(uid, nr_users_);
-      CHECK_NE(isNan(user_array_[uid]), true);
+      CHECK_NE(mf::isNan(user_array_[uid]), true);
 
       const int rsize = user.record_size();
       nn += rsize;
@@ -77,7 +77,7 @@ float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
         const float rating = rec.rating();
 
         CHECK_LT(vid, nr_videos_);
-        CHECK_NE(isNan(video_array_[vid]), true);
+        CHECK_NE(mf::isNan(video_array_[vid]), true);
 
         const float error = rating - cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1)
                             - user_array_[uid] - video_array_[vid] - gb_;

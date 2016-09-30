@@ -41,10 +41,20 @@ endif()
 set(__tbb_libs "")
 
 set(TBB_TBB_LIBRARY       tbb)
-set(TBB_TBB_DEBUG_LIBRARY tbb_debug)
+
+if(EXISTS ${TBB_LIB_DIR}/libtbb_debug.so)
+  set(TBB_TBB_DEBUG_LIBRARY tbb_debug)
+else()
+  set(TBB_TBB_DEBUG_LIBRARY tbb)
+endif()
 
 set(TBB_TBBMALLOC_LIBRARY       tbbmalloc)
-set(TBB_TBBMALLOC_DEBUG_LIBRARY tbbmalloc_debug)
+
+if(EXISTS ${TBB_LIB_DIR}/libtbbmalloc_debug.so)
+  set(TBB_TBBMALLOC_DEBUG_LIBRARY tbbmalloc_debug)
+else()
+  set(TBB_TBBMALLOC_DEBUG_LIBRARY tbbmalloc_debug)
+endif()
 
 if(NDEBUG)
   list(APPEND __tbb_libs ${TBB_TBB_LIBRARY} ${TBB_TBBMALLOC_LIBRARY})

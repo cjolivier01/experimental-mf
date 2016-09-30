@@ -34,16 +34,10 @@ class MF
 
   ~MF() {
     if(theta_) {
-#pragma omp parallel for
-      for (int x = 0; x < nr_users_; ++x) {
-        mkl_free(theta_[x]);
-      }
+      free_aligned_alloc(theta_, nr_users_);
     }
-#pragma omp parallel for
     if(phi_) {
-      for (int x = 0; x < nr_videos_; ++x) {
-        mkl_free(phi_[x]);
-      }
+      free_aligned_alloc(phi_, nr_videos_);
     }
 
     free(theta_);

@@ -1,0 +1,12 @@
+{
+  "userid": 5520,
+  "username": "coolivie",
+  "verified": true,
+  "weight": 250.3,
+  "items": [ 1, 2, 3, 4 ],
+  "games": [
+    "asteroid",
+    "donkey kong",
+    "water"
+  ]
+}

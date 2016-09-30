@@ -45,9 +45,10 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
     // TODO: Performance (if realloc of vector becomes a bottleneck): find best size in pool
     std::vector<char> *pbuffer = allocateObject();
     if (pbuffer) {
-      if (!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
-        pbuffer->resize(isize_);
-        if (!stream_->read(pbuffer->data(), isize_).fail()) {
+      int isize = 0;
+      if (!stream_->read((char *)&isize, sizeof(isize)).fail()) {
+        pbuffer->resize(isize);
+        if (!stream_->read(pbuffer->data(), isize).fail()) {
           in_time_ += Time::now() - entryTime;
           return pbuffer;
         }
@@ -80,9 +81,9 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
             stream_.reset();
             fr_->Seek(0);
             stream_ = std::unique_ptr<dmlc::istream>(new dmlc::istream(fr_, 1 << 20));
-            if(!stream_->read((char *) &isize_, sizeof(isize_)).fail()) {
-              pbuffer->resize(isize_);
-              if (!stream_->read(pbuffer->data(), isize_).fail()) {
+            if(!stream_->read((char *) &isize, sizeof(isize)).fail()) {
+              pbuffer->resize(isize);
+              if (!stream_->read(pbuffer->data(), isize).fail()) {
                 in_time_ += Time::now() - entryTime;
                 return pbuffer;
               }
@@ -107,7 +108,6 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
   const mf::Blocks&               blocks_test_;
   dmlc::SeekStream *              fr_;
   std::unique_ptr<dmlc::istream>  stream_;
-  uint32                          isize_;
   int                             iter_;
   std::atomic<unsigned long>      pass_;
   std::chrono::time_point<Time>   s_;
