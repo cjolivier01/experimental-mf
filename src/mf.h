@@ -1,5 +1,7 @@
-#ifndef _FASTMF_MF_H
-#define _FASTMF_MF_H
+#ifndef _MF_H
+#define _MF_H
+#include <thread>
+#include <iostream>
 
 #include <thread>
 #include <cinttypes>
@@ -171,7 +173,7 @@ class SgdFilter : public mf::StatusStack,
   }
 
   void *operator()(void *block) {
-    perf::TimingItem inFunc(SgdReadFilter::timing_, SgdReadFilter::TIMING_CALC, "TIMING_CALC");
+    //perf::TimingItem inFunc(SgdReadFilter::timing_, SgdReadFilter::TIMING_CALC, "TIMING_CALC");
     float q[mf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     padding(mf_.dim_);
     const mf::Block *bk = (mf::Block *) block;
