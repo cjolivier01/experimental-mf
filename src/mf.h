@@ -14,34 +14,40 @@
 namespace mf
 {
 
-class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
-                      public mf::StatusStack,
-                      public tbb::filter
-{
+enum {
+  TIMING_READ,
+  TIMING_PARSE,
+  TIMING_CALC
+};
 
+template <class SourceFilter>
+class ProtobufSourceFilter  : public mf::ObjectPool<std::vector<char> >,
+                              public mf::StatusStack,
+                              public tbb::filter  {
  public:
-  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test)
-    : mf::ObjectPool<std::vector<char> >(mf.data_in_fly_ * 10)
-      , tbb::filter(serial_in_order)
-      , mf_(mf)
-      , blocks_test_(blocks_test)
-      , fr_(fr)
-      , stream_(std::unique_ptr<dmlc::istream>(new dmlc::istream(fr , 1 << 20)))
-      , iter_(1)
-      , pass_(0)
-  {
+  ProtobufSourceFilter(const size_t bufferCount,
+                       dmlc::SeekStream *fr,
+                       perf::TimingInstrument& timing_ref)
+  : mf::ObjectPool<std::vector<char> >(bufferCount)
+    , tbb::filter(serial_in_order)
+    , fr_(fr)
+    , stream_(new dmlc::istream(fr, STREAM_BUFFER_SIZE))
+    , iter_(1)
+    , pass_(0)
+    , timing_ref_(timing_ref) {
+  }
+  ~ProtobufSourceFilter() {
   }
 
-  ~SgdReadFilter() {
-  }
+  virtual bool onIterationComplete() = 0;
 
-  void *operator()(void *) {
+  virtual void *operator()(void *) {
     std::chrono::time_point<Time> entryTime = Time::now();
     if(!pass_++) {
       s_ = Time::now();
       in_time_ = in_time_.zero();
     }
-    //perf::TimingItem inFunc(timing_, TIMING_READ, "TIMING_READ");
+    //IF_CHECK_TIMING( perf::TimingItem inFunc(timing_ref_, TIMING_READ, "TIMING_READ") );
     // TODO: Performance (if realloc of vector becomes a bottleneck): find best size in pool
     std::vector<char> *pbuffer = allocateObject();
     if (pbuffer) {
@@ -56,32 +62,11 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
         freeObject(pbuffer);
       } else {
         if(stream_->eof()) {
-          int nn;
-          printf("iter#%d\t%f\ttRMSE=%f\n",
-                 iter_,
-                 std::chrono::duration<float>(Time::now() - s_).count(),
-                 sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-          );
-//          printf("iter#%d\t%f\ttRMSE=%f\n",
-//                 iter_,
-//                 MICRO2SF(timing_.getDuration(TIMING_READ)),
-//                 sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-//          );
-//          printf("iter#%d\t%f\ttRMSE=%f\n",
-//                 iter_,
-//                 in_time_.count(),
-//                 sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-//          );
-          timing_.print(true);
-          IF_CHECK_TIMING(printBlockedTime("SgdReadFilter buffer queue blocked", false));
-          //pass_ = 0;
-          // Check if we reached the desired number of iterations
-          if (iter_ != mf_.iter_) {
-            mf_.seteta(++iter_);
+          if(onIterationComplete()) {
             stream_.reset();
             fr_->Seek(0);
-            stream_ = std::unique_ptr<dmlc::istream>(new dmlc::istream(fr_, 1 << 20));
-            if(!stream_->read((char *) &isize, sizeof(isize)).fail()) {
+            stream_ = std::unique_ptr<dmlc::istream>(new dmlc::istream(fr_, STREAM_BUFFER_SIZE));
+            if (!stream_->read((char *) &isize, sizeof(isize)).fail()) {
               pbuffer->resize(isize);
               if (!stream_->read(pbuffer->data(), isize).fail()) {
                 in_time_ += Time::now() - entryTime;
@@ -90,7 +75,8 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
             }
             addStatus(IO_ERROR, "Error reading input data object");
           }
-        } else {
+        }
+        else {
           addStatus(IO_ERROR);
         }
       }
@@ -102,10 +88,7 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
     return NULL;
   }
 
- private:
-
-  MF&                             mf_;
-  const mf::Blocks&               blocks_test_;
+ protected:
   dmlc::SeekStream *              fr_;
   std::unique_ptr<dmlc::istream>  stream_;
   int                             iter_;
@@ -113,11 +96,122 @@ class SgdReadFilter : public mf::ObjectPool<std::vector<char> >,
   std::chrono::time_point<Time>   s_;
   std::chrono::duration<float>    in_time_;
  public:
-  enum {
-    TIMING_READ,
-    TIMING_PARSE,
-    TIMING_CALC
-  };
+  perf::TimingInstrument&         timing_ref_;
+};
+
+class SgdReadFilter : public ProtobufSourceFilter<SgdReadFilter>
+//                      public mf::ObjectPool<std::vector<char> >,
+//                      public mf::StatusStack,
+//                      public tbb::filter
+{
+
+ public:
+  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test)
+  : ProtobufSourceFilter<SgdReadFilter>(mf.data_in_fly_ * 10, fr, timing_)
+//    : mf::ObjectPool<std::vector<char> >(mf.data_in_fly_ * 10)
+//      , tbb::filter(serial_in_order)
+      , mf_(mf)
+      , blocks_test_(blocks_test)
+//      , fr_(fr)
+//      , stream_(std::unique_ptr<dmlc::istream>(new dmlc::istream(fr, STREAM_BUFFER_SIZE)))
+//      , iter_(1)
+//      , pass_(0)
+  {
+  }
+
+//  ~SgdReadFilter() {
+//  }
+
+  bool onIterationComplete() {
+    int nn;
+    printf("iter#%d\t%f\ttRMSE=%f\n",
+           iter_,
+           std::chrono::duration<float>(Time::now() - s_).count(),
+           sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+    );
+    //IF_CHECK_TIMING(timing_.print(true));
+    IF_CHECK_TIMING(printBlockedTime("SgdReadFilter buffer queue blocked", false));
+    // Check if we reached the desired number of iterations
+    if (iter_ != mf_.iter_) {
+      mf_.seteta(++iter_);
+      return true;
+    }
+    return false;
+  }
+
+
+//virtual void *operator()(void *) {
+//    std::chrono::time_point<Time> entryTime = Time::now();
+//    if(!pass_++) {
+//      s_ = Time::now();
+//      in_time_ = in_time_.zero();
+//    }
+//    //perf::TimingItem inFunc(timing_, TIMING_READ, "TIMING_READ");
+//    // TODO: Performance (if realloc of vector becomes a bottleneck): find best size in pool
+//    std::vector<char> *pbuffer = allocateObject();
+//    if (pbuffer) {
+//      int isize = 0;
+//      if (!stream_->read((char *)&isize, sizeof(isize)).fail()) {
+//        pbuffer->resize(isize);
+//        if (!stream_->read(pbuffer->data(), isize).fail()) {
+//          in_time_ += Time::now() - entryTime;
+//          return pbuffer;
+//        }
+//        addStatus(IO_ERROR, "Error reading input data object");
+//        freeObject(pbuffer);
+//      } else {
+//        if(stream_->eof()) {
+//          int nn;
+//          printf("iter#%d\t%f\ttRMSE=%f\n",
+//                 iter_,
+//                 std::chrono::duration<float>(Time::now() - s_).count(),
+//                 sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+//          );
+//          timing_.print(true);
+//          IF_CHECK_TIMING(printBlockedTime("SgdReadFilter buffer queue blocked", false));
+//          // Check if we reached the desired number of iterations
+//          if (iter_ != mf_.iter_) {
+//            mf_.seteta(++iter_);
+//            stream_.reset();
+//            fr_->Seek(0);
+//            stream_ = std::unique_ptr<dmlc::istream>(new dmlc::istream(fr_, STREAM_BUFFER_SIZE));
+//            if(!stream_->read((char *) &isize, sizeof(isize)).fail()) {
+//              pbuffer->resize(isize);
+//              if (!stream_->read(pbuffer->data(), isize).fail()) {
+//                in_time_ += Time::now() - entryTime;
+//                return pbuffer;
+//              }
+//            }
+//            addStatus(IO_ERROR, "Error reading input data object");
+//          }
+//        } else {
+//          addStatus(IO_ERROR);
+//        }
+//      }
+//      freeObject(pbuffer);
+//    } else {
+//      addStatus(POOL_ERROR);
+//    }
+//    in_time_ += Time::now() - entryTime;
+//    return NULL;
+//  }
+
+ private:
+
+  MF&                             mf_;
+  const mf::Blocks&               blocks_test_;
+//  dmlc::SeekStream *              fr_;
+//  std::unique_ptr<dmlc::istream>  stream_;
+//  int                             iter_;
+//  std::atomic<unsigned long>      pass_;
+//  std::chrono::time_point<Time>   s_;
+//  std::chrono::duration<float>    in_time_;
+// public:
+//  enum {
+//    TIMING_READ,
+//    TIMING_PARSE,
+//    TIMING_CALC
+//  };
   static perf::TimingInstrument   timing_;
 };
 
@@ -167,9 +261,15 @@ class SgdFilter : public mf::StatusStack,
 
  public:
   SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool)
-    : tbb::filter(/*serial_in_order*/ parallel)
+    : tbb::filter(parallel)
+      //, max_u_(0.0), min_u_(0.0), max_v_(0.0), min_v_(0.0)
       , mf_(model)
       , free_block_pool_(free_block_pool) {
+  }
+  ~SgdFilter() {
+//    std::cout << "u: " << min_u_ << " - " << max_u_
+//              << ", v: " << min_v_ << " - " << max_v_
+//              << std::endl << std::flush;
   }
 
   void *operator()(void *block) {
@@ -229,6 +329,11 @@ class SgdFilter : public mf::StatusStack,
         cblas_scopy(mf_.dim_, q, 1, phi, 1);
         mf_.user_array_[uid] = lameta * mf_.user_array_[uid] + error;
         mf_.video_array_[vid] = lameta * mf_.video_array_[vid] + error;
+
+//        max_u_ = std::max(mf_.user_array_[uid], max_u_);
+//        max_v_ = std::max(mf_.video_array_[vid], max_v_);
+//        min_u_ = std::min(mf_.user_array_[uid], min_u_);
+//        min_v_ = std::min(mf_.video_array_[vid], min_v_);
       }
     }
     // Return block to queue
@@ -238,6 +343,7 @@ class SgdFilter : public mf::StatusStack,
   }
 
  private:
+  //float max_u_, min_u_, max_v_, min_v_;
   const MF&                   mf_;
   mf::ObjectPool<mf::Block>&  free_block_pool_;
   //perf::DebugUsing<int>       using_user_, using_vid_;

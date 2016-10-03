@@ -47,6 +47,8 @@ typedef std::chrono::high_resolution_clock Time;
 namespace mf
 {
 
+constexpr size_t STREAM_BUFFER_SIZE = (1 << 20);
+
 typedef struct
 {
   int u_, v_;
@@ -209,7 +211,28 @@ inline int padding(int dim) {
   return ((dim * sizeof(float) - 1) / CACHE_LINE_SIZE * CACHE_LINE_SIZE + CACHE_LINE_SIZE) / sizeof(float);
 }
 
-inline bool isNan(const float& f) {
+/**
+ * isFinite()
+ *      Check is the given value is finite (not NAN or infinite, etc.
+ *      For debugging, it's sometimes useful to put another "reasonable check" in here
+ *      such as some ridiculously large value which indicates a calculation or data bug
+ * @param value to check
+ * @return true if the value is reasonable
+ */
+inline bool isFinite(const float &f) {
+  if(fabs(f) > 1e10) {
+    return false;
+  }
+  return std::isfinite(f);
+}
+
+/**
+ * isNan()
+ *  Check explicitly for not-a-number
+ * @param value to check
+ * @return true if the value is not a number
+ */
+inline bool isNan(const float &f) {
   // nan has special property that it doesn't equal itself
   // This can't be trusted with all compilers in release mode
   return f != f;

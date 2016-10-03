@@ -13,7 +13,7 @@ class AdRegReadFilter : public mf::ObjectPool< std::vector<char> >,
 {
  public:
   AdRegReadFilter(AdaptRegMF &admf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test)
-    : mf::ObjectPool<std::vector<char> >(admf_.data_in_fly_ * 10)
+    : mf::ObjectPool<std::vector<char> >(admf.data_in_fly_ * 10)
       , tbb::filter(serial_in_order)
       , admf_(admf)
       , blocks_test_(blocks_test)
@@ -24,6 +24,9 @@ class AdRegReadFilter : public mf::ObjectPool< std::vector<char> >,
   }
 
   void *operator()(void *) {
+    if(!pass_++) {
+      s_ = Time::now();
+    }
     std::vector<char> *pbuffer = allocateObject();
     if(pbuffer) {
       if (!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
@@ -40,7 +43,6 @@ class AdRegReadFilter : public mf::ObjectPool< std::vector<char> >,
                  std::chrono::duration<float>(Time::now() - s_).count(),
                  sqrt(admf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
           );
-          pass_ = 0;
           if (iter_ != admf_.iter_) {
             admf_.seteta(++iter_);
             admf_.set_etareg(iter_);
@@ -58,8 +60,8 @@ class AdRegReadFilter : public mf::ObjectPool< std::vector<char> >,
         } else {
           addStatus(IO_ERROR);
         }
-        freeObject(pbuffer);
       }
+      freeObject(pbuffer);
     } else {
       addStatus(POOL_ERROR);
     }
@@ -92,21 +94,22 @@ class AdRegFilter : public mf::StatusStack,
     float q[admf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     mf::Block *bk = (mf::Block *) block;
     const float eta = admf_.eta_;
-    int vid, j, i;
-    float /*error,*/ rating;
-    for (i = 0; i < bk->user_size(); i++) {
+    for (int i = 0; i < bk->user_size(); i++) {
       const mf::User &user = bk->user(i);
       const int uid = user.uid();
+      DCHECK_EQ(isFinite(admf_.user_array_[uid]), true);
       const int size = user.record_size();
-      for (j = 0; j < size; j++) {
+      for (int j = 0; j < size; j++) {
         memset(q, 0.0, sizeof(float) * admf_.dim_);
         const mf::User_Record &rec = user.record(j);
-        vid = rec.vid();
-        rating = rec.rating();
+        const int vid = rec.vid();
+        DCHECK_EQ(isFinite(admf_.video_array_[vid]), true);
+        const float rating = rec.rating();
         cblas_scopy(admf_.dim_, admf_.theta_[uid], 1, admf_.theta_old_[uid], 1);
         cblas_scopy(admf_.dim_, admf_.phi_[vid], 1, admf_.phi_old_[vid], 1);
-        float pred = active(
-          cblas_sdot(admf_.dim_, admf_.theta_[uid], 1, admf_.phi_[vid], 1) + admf_.user_array_[uid] + admf_.video_array_[vid] +
+        const float pred = active(
+          cblas_sdot(admf_.dim_, admf_.theta_[uid], 1,
+                     admf_.phi_[vid], 1) + admf_.user_array_[uid] + admf_.video_array_[vid] +
           admf_.gb_, admf_.loss_);
         float error = cal_grad(rating, pred, admf_.loss_);
         error = eta * error;
@@ -119,8 +122,10 @@ class AdRegFilter : public mf::StatusStack,
         admf_.bv_old_[vid] = admf_.video_array_[vid];
         admf_.user_array_[uid] = (1.0f - eta * admf_.lam_bu_) * admf_.user_array_[uid] + error;
         admf_.video_array_[vid] = (1.0f - eta * admf_.lam_bv_) * admf_.video_array_[vid] + error;
+        DCHECK_EQ(isFinite(admf_.user_array_[uid]), true);
+        DCHECK_EQ(isFinite(admf_.video_array_[vid]), true);
       }
-      int ii = rand() % admf_.recsv_.size();
+      const int ii = rand() % admf_.recsv_.size();
       admf_.updateReg(admf_.recsv_[ii].u_, admf_.recsv_[ii].v_, admf_.recsv_[ii].r_);
     }
     free_block_pool_.freeObject(bk);

@@ -32,7 +32,7 @@ class MF
       , data_in_fly_(fly)
       , prefetch_stride_(stride) {}
 
-  ~MF() {
+  virtual ~MF() {
     if(theta_) {
       free_aligned_alloc(theta_, nr_users_);
     }
@@ -44,12 +44,12 @@ class MF
     free(user_array_);
   }
 
-  void init();
+  virtual void init();
 
   float calc_mse(const mf::Blocks &blocks, int &ndata) const;
 
-  int read_model(); // TODO: coolivie: Should this be virtual?
-  int save_model(int round);
+  virtual int read_model();
+  virtual int save_model(int round);
 
   void seteta(int round);
 
@@ -83,7 +83,9 @@ class DPMF : public MF
       , lambda_ub_(1e2)
       , lambda_vb_(1e2)
       , ntrain_(0)
-      , ntest_(0) {}
+      , ntest_(0)
+      , auto_eta_(false)
+  {}
 
   ~DPMF() {
     free(theta_[0]), free(theta_), free(user_array_), free(noise_);
@@ -129,6 +131,7 @@ class DPMF : public MF
   float epsilon_, bound_;
   float lambda_r_, lambda_ub_, lambda_vb_;
   int ntrain_, ntest_;
+  bool auto_eta_;
   char pad[CACHE_LINE_SIZE];
   std::atomic<uint64> gcount;
 };

@@ -68,8 +68,8 @@ static int run(MF& mf) {
       p.add_filter(sgd_f);
       // Check errors in reverse order
       p.run(mf.data_in_fly_);
-      IF_CHECK_TIMING( read_f.printBlockedTime("read_f")   );
-      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f") );
+      IF_CHECK_TIMING( read_f.printBlockedTime("read_f queue blocked for")   );
+      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f queue blocked for") );
       setOnError(sgd_f, rc);
       setOnError(parse_f, rc);
       setOnError(read_f, rc);
@@ -104,8 +104,8 @@ static int run(DPMF& dpmf) {
         p.run(dpmf.data_in_fly_);
         dpmf.finish_round(blocks_test, i, s);
       }
-      IF_CHECK_TIMING( read_f.printBlockedTime("read_f")   );
-      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f") );
+      IF_CHECK_TIMING( read_f.printBlockedTime("read_f queue blocked for")   );
+      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f queue blocked for") );
       setOnError(sgld_f, rc);
       setOnError(parse_f, rc);
       setOnError(read_f, rc);
@@ -123,24 +123,27 @@ static int run(AdaptRegMF& admf) {
   mf::Blocks blocks_test;
   rc = plain_read(admf.test_data_, blocks_test);
   if(!rc) {
-    admf.plain_read_valid(admf.valid_data_);
-    std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_));
-    if (f.get()) {
-      AdRegReadFilter read_f(admf, f.get(), blocks_test);
-      ParseFilter parse_f(admf.data_in_fly_, read_f);
-      AdRegFilter admf_f(admf, parse_f);
-      tbb::pipeline p;
-      p.add_filter(read_f);
-      p.add_filter(parse_f);
-      p.add_filter(admf_f);
-      p.run(admf.data_in_fly_);
-      IF_CHECK_TIMING( read_f.printBlockedTime("read_f")   );
-      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f") );
-      setOnError(admf_f, rc);
-      setOnError(parse_f, rc);
-      setOnError(read_f, rc);
-    } else {
-      rc = errno;
+    rc = admf.plain_read_valid(admf.valid_data_);
+    if(!rc) {
+      std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_));
+      if (f.get()) {
+        AdRegReadFilter read_f(admf, f.get(), blocks_test);
+        ParseFilter parse_f(admf.data_in_fly_, read_f);
+        AdRegFilter admf_f(admf, parse_f);
+        tbb::pipeline p;
+        p.add_filter(read_f);
+        p.add_filter(parse_f);
+        p.add_filter(admf_f);
+        p.run(admf.data_in_fly_);
+        IF_CHECK_TIMING(read_f.printBlockedTime("read_f queue blocked for"));
+        IF_CHECK_TIMING(parse_f.printBlockedTime("parse_f queue blocked for"));
+        setOnError(admf_f, rc);
+        setOnError(parse_f, rc);
+        setOnError(read_f, rc);
+      } else {
+        rc = errno;
+        CHECK_NE(rc, 0);
+      }
     }
   }
   return rc;
@@ -157,6 +160,7 @@ int main(int argc, char** argv) {
   int measure = 0;
   float eta_reg = 2e-3f;
   char* valid_data=NULL;
+  bool have_eta = false;
   for(int i = 1; i < argc; i++) {
     if(!strcmp(argv[i], "--train"))            train_data = argv[++i];
     else if(!strcmp(argv[i], "--test"))        test_data = argv[++i];
@@ -170,7 +174,7 @@ int main(int argc, char** argv) {
     else if(!strcmp(argv[i], "--nv"))          nv  = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--fly"))         fly  = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--stride"))      stride  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--eta"))         eta = atof(argv[++i]);
+    else if(!strcmp(argv[i], "--eta"))         { eta = atof(argv[++i]); have_eta = true; }
     else if(!strcmp(argv[i], "--lambda"))      lambda = atof(argv[++i]);
     else if(!strcmp(argv[i], "--gam"))         gam = atof(argv[++i]);
     else if(!strcmp(argv[i], "--bias"))        g_bias = atof(argv[++i]);
@@ -197,18 +201,22 @@ int main(int argc, char** argv) {
   int rc = 0;
   perf::TimedScope timedScope;
   if(!alg || !*alg || !strcmp(alg, "mf")) {
-    MF mf(train_data, test_data, result, model, dim, iter, eta, gam, lambda, \
+    MF mf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
               g_bias, nu, nv, fly, stride);
     rc = run(mf);
   }
   else if (!strcmp(alg, "dpmf")) {
-    DPMF dpmf(train_data, test_data, result, model, dim, iter, eta, gam, lambda, \
-                  g_bias, nu, nv, fly, stride, hypera, hyperb, epsilon, tau, \
+    if(!have_eta) {
+      eta = 1e-10;
+    }
+    DPMF dpmf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
+                  g_bias, nu, nv, fly, stride, hypera, hyperb, epsilon, tau,
                   noise_size, temp, mineta);
+    dpmf.auto_eta_ = !have_eta;
     rc = run(dpmf);
   }
   else if (!strcmp(alg, "admf")) {
-    AdaptRegMF admf(train_data, test_data, valid_data, result, model, dim, iter, eta, gam, \
+    AdaptRegMF admf(train_data, test_data, valid_data, result, model, dim, iter, eta, gam,
                         lambda, g_bias, nu, nv, fly, stride, loss, measure, eta_reg);
     rc = run(admf);
   }

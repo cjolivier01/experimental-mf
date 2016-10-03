@@ -32,18 +32,18 @@ void MF::init() {
 #pragma omp parallel for
   for (int i = 0; i < nr_users_; i++) {
     for (int j = 0; j < dim_; j++) {
-      theta_[i][j] = gaussian(generator) * 1e-2;
+      theta_[i][j] = gaussian(generator) * 1e-2f;
     }
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_videos_; i++) {
     for (int j = 0; j < dim_; j++) {
-      phi_[i][j] = gaussian(generator) * 1e-2;
+      phi_[i][j] = gaussian(generator) * 1e-2f;
     }
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_users_ + nr_videos_; i++) {
-    user_array_[i] = gaussian(generator) * 1e-2;
+    user_array_[i] = gaussian(generator) * 1e-2f;
   }
 }
 
@@ -67,7 +67,7 @@ float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
       const int uid = user.uid();
 
       CHECK_LT(uid, nr_users_);
-      CHECK_NE(mf::isNan(user_array_[uid]), true);
+      CHECK_EQ(mf::isFinite(user_array_[uid]), true);
 
       const int rsize = user.record_size();
       nn += rsize;
@@ -77,7 +77,7 @@ float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
         const float rating = rec.rating();
 
         CHECK_LT(vid, nr_videos_);
-        CHECK_NE(mf::isNan(video_array_[vid]), true);
+        CHECK_EQ(mf::isFinite(video_array_[vid]), true);
 
         const float error = rating - cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1)
                             - user_array_[uid] - video_array_[vid] - gb_;
@@ -114,7 +114,7 @@ int MF::save_model(int round) {
     file += std::to_string(round);
     std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::Create(file.c_str(), "wb", true));
     if (stream.get()) {
-      dmlc::ostream output(stream.get(), 1 << 20);
+      dmlc::ostream output(stream.get(), mf::STREAM_BUFFER_SIZE);
       WRITEVAR(output, nr_users_);
       WRITEVAR(output, nr_videos_);
       WRITEVAR(output, dim_);
@@ -151,7 +151,7 @@ int MF::read_model() {
   if(model_ && *model_) {
     std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(model_));
     if (stream.get()) {
-      dmlc::istream input(stream.get(), 1 << 20);
+      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
       READVAR(input, nr_videos_);
       READVAR(input, nr_users_);
       READVAR(input, dim_);
@@ -193,7 +193,7 @@ int DPMF::save_model(int round) {
     file += std::to_string(round);
     std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::Create(file.c_str(), "wb", true));
     if (stream.get()) {
-      dmlc::ostream output(stream.get(), 1 << 20);
+      dmlc::ostream output(stream.get(), mf::STREAM_BUFFER_SIZE);
       WRITEVAR(output, nr_videos_);
       WRITEVAR(output, nr_users_);
       WRITEVAR(output, dim_);
@@ -241,7 +241,7 @@ int DPMF::read_hyper() {
   if(model_ && *model_) {
     std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(model_));
     if (stream.get()) {
-      dmlc::istream input(stream.get(), 1 << 20);
+      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
       READVAR(input, nr_videos_);
       READVAR(input, nr_users_);
       READVAR(input, dim_);
@@ -271,7 +271,7 @@ int DPMF::read_model() {
   if(model_ && *model_) {
     std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(model_));
     if (stream.get()) {
-      dmlc::istream input(stream.get(), 1 << 20);
+      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
       READVAR(input, nr_videos_);
       READVAR(input, nr_users_);
       READVAR(input, dim_);
@@ -316,7 +316,9 @@ int DPMF::read_model() {
 
 void DPMF::init() {
   //alloc
-  user_array_ = (float *) malloc((2 * (nr_users_ + nr_videos_) + 2 * dim_) * sizeof(float));
+  const size_t memSize = (2 * (nr_users_ + nr_videos_) + 2 * dim_) * sizeof(float);
+  user_array_ = (float *) malloc(memSize);
+  memset(user_array_, 0, memSize);
   video_array_ = user_array_ + nr_users_;
   ur_ = video_array_ + nr_videos_;
   vr_ = ur_ + nr_users_;
@@ -333,17 +335,22 @@ void DPMF::init() {
   //init
 #pragma omp parallel for
   for (int i = 0; i < nr_users_; i++) {
-    for (int j = 0; j < dim_; j++)
-      theta_[i][j] = gaussian(generator) * 1e-2;
+    for (int j = 0; j < dim_; j++) {
+      theta_[i][j] = gaussian(generator) * 1e-2f;
+      DCHECK_EQ(isFinite(theta_[i][j]), true);
+    }
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_videos_; i++) {
-    for (int j = 0; j < dim_; j++)
-      phi_[i][j] = gaussian(generator) * 1e-2;
+    for (int j = 0; j < dim_; j++) {
+      phi_[i][j] = gaussian(generator) * 1e-2f;
+      DCHECK_EQ(isFinite(phi_[i][j]), true);
+    }
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_users_ + nr_videos_; i++) {
-    user_array_[i] = gaussian(generator) * 1e-2;
+    user_array_[i] = gaussian(generator) * 1e-2f;
+    DCHECK_EQ(isFinite(user_array_[i]), true);
   }
   for (int i = 0; i < 2 * dim_; i++) {
     lambda_u_[i] = 1e2;
@@ -354,9 +361,15 @@ void DPMF::init() {
 #pragma omp parallel for
   for (int i = 0; i < noise_size_; i++) {
     noise_[i] = gaussian(generator);
+    DCHECK_EQ(isFinite(noise_[i]), true);
   }
   //sample train data and precompute weights according to training data
   sample_train_and_precompute_weight();
+
+  if(auto_eta_ && ntrain_) {
+    eta_ = 1.0e-2f/ntrain_;
+  }
+
   //bookkeeping
   gcount = 0;
   gcountu = new uint64[nr_users_]();
@@ -370,24 +383,23 @@ void DPMF::init() {
     bound_ = 1.0f;
   }
   else {
-    bound_ = epsilon_ * 1.0 / (4.0 * 25.0 * tau_);
+    bound_ = epsilon_ * 1.0f / (4.0f * 25.0f * tau_);
   }
   uniform_int_ = std::uniform_int_distribution<>(0, noise_size_ - tau_ * (dim_ + 1) - 1);
   assert(noise_size_ - tau_ * (dim_ + 1) > 10000);
 }
 
 void DPMF::block_count(int *uc, int *vc, mf::Block *bk) {
-  int uid, vid;
   for (int i = 0; i < bk->user_size(); i++) {
     const mf::User &user = bk->user(i);
-    uid = user.uid();
+    const int uid = user.uid();
     const int size = user.record_size();
     for (int j = 0; j < size; j++) {
       const mf::User_Record &rec = user.record(j);
-      vid = rec.vid();
+      const int vid = rec.vid();
       uc[uid] += 1;
       vc[vid] += 1;
-      ntrain_++;
+      ++ntrain_;
     }
   }
 }
@@ -397,7 +409,7 @@ int DPMF::sample_train_and_precompute_weight() {
   if(train_data_ && *train_data_) {
     std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(train_data_));
     if (stream.get()) {
-      dmlc::istream input(stream.get(), 1 << 20);
+      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
       uint32 isize;
       mf::Block bk, *pbk;
       std::vector<char> buf;
@@ -487,6 +499,7 @@ void DPMF::finish_noise() {
     gcountu[i] = 0;
     cblas_saxpy(dim_, sqrt(temp_ * eta_ * uc), noise_ + rndind, 1, theta_[i], 1);
     user_array_[i] += sqrt(temp_ * eta_ * uc) * noise_[rndind + dim_];
+    DCHECK_EQ(isFinite(user_array_[i]), true);
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_videos_; i++) {
@@ -495,6 +508,7 @@ void DPMF::finish_noise() {
     gcountv[i] = 0;
     cblas_saxpy(dim_, sqrt(temp_ * eta_ * vc), noise_ + rndind, 1, phi_[i], 1);
     video_array_[i] += sqrt(temp_ * eta_ * vc) * noise_[rndind + dim_];
+    DCHECK_EQ(isFinite(video_array_[i]), true);
   }
   gcount = 0;
 }
@@ -562,7 +576,7 @@ int AdaptRegMF::plain_read_valid(const char *valid) {
   if(valid && *valid) {
     std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(valid));
     if (stream.get()) {
-      dmlc::istream input(stream.get(), 1 << 20);
+      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
       std::vector<char> buf;
       uint32 isize;
       mf::Block bk;
@@ -579,12 +593,15 @@ int AdaptRegMF::plain_read_valid(const char *valid) {
               rr.u_ = uid;
               rr.v_ = (int) rec.vid();
               rr.r_ = rec.rating();
+              DCHECK_EQ(isFinite(rr.r_), true);
               recsv_.push_back(rr);
             }
           }
           bk.Clear();
         } else {
-          rc = EIO;
+          if(!input.eof()) {
+            rc = EIO;
+          }
           break;
         }
       }
