@@ -17,6 +17,8 @@ include(ExternalProject)
 set(fastmf_LINKER_LIBS_L "" )
 set(fastmf_INCLUDE_DIR_L "" )
 
+list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
+
 # --[ dmlc-core
 add_subdirectory("dmlc-core")
 include_directories("dmlc-core/include")
@@ -29,7 +31,7 @@ if(MKL_FOUND)
 endif()
 
 # --[ TBB
-include(${PROJECT_SOURCE_DIR}/cmake/FindTBB.cmake)
+find_package(TBB)
 
 if(TBB_FOUND)
   include_directories(${TBB_INCLUDE_DIR})
@@ -41,6 +43,13 @@ find_package(SWIG)
 
 # ---[ Protobuf
 include(${PROJECT_SOURCE_DIR}/cmake/ProtoBuf.cmake)
+
+# ---[ jemalloc
+find_package(JeMalloc)
+if(JEMALLOC_FOUND)
+  add_definitions(-DUSE_JEMALLOC)
+  include_directories(${JEMALLOC_INCLUDE_DIRS})
+endif()
 
 # ---[ Google Test
 if(NOT GTEST_ROOT)
@@ -124,6 +133,7 @@ if(MSVC)
   endforeach(flag_var)
 endif()
 
+set(fastmf_LINKER_LIBS ${fastmf_LINKER_LIBS} ${JEMALLOC_LIBRARIES})
 set(fastmf_LINKER_LIBS ${fastmf_LINKER_LIBS} ${dmlccore_LINKER_LIBS})
 set(fastmf_LINKER_LIBS ${fastmf_LINKER_LIBS} ${MKL_LIBRARIES})
 set(fastmf_LINKER_LIBS ${fastmf_LINKER_LIBS} ${TBB_LIBRARIES})

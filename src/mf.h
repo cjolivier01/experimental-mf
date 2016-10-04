@@ -1,5 +1,5 @@
-#ifndef _MF_H
-#define _MF_H
+#ifndef _FASTMF_MF_H
+#define _FASTMF_MF_H
 #include <thread>
 #include <iostream>
 
@@ -19,8 +19,8 @@ class SgdReadFilter : public BinaryRecordSourceFilter
 {
 
  public:
-  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test)
-  : BinaryRecordSourceFilter(mf.data_in_fly_ * 10, fr, timing_)
+  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test, perf::TimingInstrument *timing)
+  : BinaryRecordSourceFilter(mf.data_in_fly_ * 10, fr, timing)
     , mf_(mf)
     , iter_(1)
     , blocks_test_(blocks_test)
@@ -35,7 +35,7 @@ class SgdReadFilter : public BinaryRecordSourceFilter
            sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
     );
     //IF_CHECK_TIMING(timing_.print(true));
-    IF_CHECK_TIMING(printBlockedTime("SgdReadFilter buffer queue blocked", false));
+    //IF_CHECK_TIMING(printBlockedTime("SgdReadFilter buffer queue blocked", false));
 
     // Check if we reached the desired number of iterations
     if (iter_ != mf_.iter_) {
@@ -50,7 +50,6 @@ class SgdReadFilter : public BinaryRecordSourceFilter
   MF&                             mf_;
   int                             iter_;
   const mf::Blocks&               blocks_test_;
-  static perf::TimingInstrument   timing_;
 };
 
 class ParseFilter : public mf::ObjectPool<mf::Block>,
@@ -59,10 +58,13 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
 {
 
  public:
-  ParseFilter(size_t fly, mf::ObjectPool<std::vector<char> > &free_buffer_pool)
+  ParseFilter(size_t fly,
+              mf::ObjectPool<std::vector<char> > &free_buffer_pool,
+              perf::TimingInstrument *timing)
     : mf::ObjectPool<mf::Block>(fly * 10)
       , tbb::filter(parallel)
       , free_buffer_pool_(free_buffer_pool)
+      , timing_(timing)
   {
   }
 
@@ -73,7 +75,7 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
       mf::Block *bk = allocateObject();
       CHECK_NOTNULL(bk);
       if (bk) {
-        const bool ok = bk->ParseFromArray(p->data(), p->size());
+        const bool ok = bk->ParseFromArray(p->data(), (int)p->size());
         // Return the buffer
         free_buffer_pool_.freeObject(p);
         if (ok) {
@@ -91,6 +93,7 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
  private:
   char                                pad[CACHE_LINE_SIZE];
   mf::ObjectPool<std::vector<char> > &free_buffer_pool_;
+  perf::TimingInstrument *            timing_;
 };
 
 class SgdFilter : public mf::StatusStack,
@@ -98,21 +101,22 @@ class SgdFilter : public mf::StatusStack,
 {
 
  public:
-  SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool)
+  SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool, perf::TimingInstrument *timing)
     : tbb::filter(parallel)
       , mf_(model)
-      , free_block_pool_(free_block_pool) {
+      , free_block_pool_(free_block_pool)
+      , timing_(timing) {
   }
   ~SgdFilter() {
   }
 
   void *operator()(void *block) {
-    //perf::TimingItem inFunc(SgdReadFilter::timing_, SgdReadFilter::FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
+    perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[mf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     padding(mf_.dim_);
     const mf::Block *bk = (mf::Block *) block;
     CHECK_NOTNULL(bk);
-    const float lameta = 1.0 - mf_.eta_ * mf_.lambda_;
+    const float lameta = 1.0f - mf_.eta_ * mf_.lambda_;
     int vid, j, i;
     float error, rating, *theta, *phi;
     for (i = 0; i < bk->user_size(); ++i) {
@@ -136,7 +140,7 @@ class SgdFilter : public mf::StatusStack,
                 - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.gb_;
         error = mf_.eta_ * error;
         cblas_saxpy(mf_.dim_, error, theta, 1, q, 1);
-        cblas_saxpy(mf_.dim_, lameta - 1.0, theta, 1, theta, 1);
+        cblas_saxpy(mf_.dim_, lameta - 1.0f, theta, 1, theta, 1);
         cblas_saxpy(mf_.dim_, error, phi, 1, theta, 1);
         cblas_saxpy(mf_.dim_, lameta, phi, 1, q, 1);
         cblas_scopy(mf_.dim_, q, 1, phi, 1);
@@ -155,11 +159,11 @@ class SgdFilter : public mf::StatusStack,
                 - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.gb_;
         error = mf_.eta_ * error;
         cblas_saxpy(mf_.dim_, error, theta, 1, q, 1);
-        cblas_saxpy(mf_.dim_, lameta - 1.0, theta, 1, theta, 1);
+        cblas_saxpy(mf_.dim_, lameta - 1.0f, theta, 1, theta, 1);
         cblas_saxpy(mf_.dim_, error, phi, 1, theta, 1);
         cblas_saxpy(mf_.dim_, lameta, phi, 1, q, 1);
         cblas_scopy(mf_.dim_, q, 1, phi, 1);
-        mf_.user_array_[uid] = lameta * mf_.user_array_[uid] + error;
+        mf_.user_array_[uid]  = lameta * mf_.user_array_[uid]  + error;
         mf_.video_array_[vid] = lameta * mf_.video_array_[vid] + error;
       }
     }
@@ -172,6 +176,7 @@ class SgdFilter : public mf::StatusStack,
  private:
   const MF&                   mf_;
   mf::ObjectPool<mf::Block>&  free_block_pool_;
+  perf::TimingInstrument *    timing_;
 };
 
 } // namespace mf

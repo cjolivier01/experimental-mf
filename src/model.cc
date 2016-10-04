@@ -479,8 +479,8 @@ int DPMF::sample_train_and_precompute_weight() {
 void DPMF::finish_round(const mf::Blocks &blocks_test, int round, const std::chrono::time_point<Time>& s) {
   finish_noise();
   int ntr, nt;
-  float mse = calc_mse(train_sample_, ntr);
-  float tmse = calc_mse(blocks_test, nt);
+  const float mse = calc_mse(train_sample_, ntr);
+  const float tmse = calc_mse(blocks_test, nt);
   printf("round #%d\tRMSE=%f\ttRMSE=%f\t", round, sqrt(mse * 1.0 / ntr), sqrt(tmse * 1.0 / nt));
   sample_hyper(mse);
   seteta_cutoff(round + 1);
@@ -491,23 +491,25 @@ void DPMF::finish_round(const mf::Blocks &blocks_test, int round, const std::chr
 }
 
 void DPMF::finish_noise() {
-  const int gc = gcount.load();
+  const size_t gc = gcount.load();
   int rndind;
 #pragma omp parallel for
   for (int i = 0; i < nr_users_; i++) {
     rndind = uniform_int_(generator);
-    int uc = gc - gcountu[i];
+    const size_t uc = gc - gcountu[i];
     gcountu[i] = 0;
-    cblas_saxpy(dim_, sqrt(temp_ * eta_ * uc), noise_ + rndind, 1, theta_[i], 1);
+    cblas_saxpy(dim_, (float)sqrt(temp_ * eta_ * uc), noise_ + rndind, 1, theta_[i], 1);
+    DCHECK_EQ(isFinite(user_array_[i]), true);
     user_array_[i] += sqrt(temp_ * eta_ * uc) * noise_[rndind + dim_];
     DCHECK_EQ(isFinite(user_array_[i]), true);
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_videos_; i++) {
     rndind = uniform_int_(generator);
-    int vc = gc - gcountv[i].load();
+    const size_t vc = gc - gcountv[i].load();
     gcountv[i] = 0;
-    cblas_saxpy(dim_, sqrt(temp_ * eta_ * vc), noise_ + rndind, 1, phi_[i], 1);
+    cblas_saxpy(dim_, (float)sqrt(temp_ * eta_ * vc), noise_ + rndind, 1, phi_[i], 1);
+    DCHECK_EQ(isFinite(video_array_[i]), true);
     video_array_[i] += sqrt(temp_ * eta_ * vc) * noise_[rndind + dim_];
     DCHECK_EQ(isFinite(video_array_[i]), true);
   }
@@ -533,6 +535,9 @@ void DPMF::sample_hyper(float mse) {
 
 void DPMF::seteta_cutoff(int round) {
   eta_ = std::max(mineta_, (float) (eta0_ * 1.0 / pow(round, gam_)));
+  if(ntrain_) {
+    eta_.store(eta_.load() / ntrain_);
+  }
 }
 
 

@@ -11,8 +11,8 @@ namespace mf
 class AdRegReadFilter : public BinaryRecordSourceFilter
 {
  public:
-  AdRegReadFilter(AdaptRegMF &admf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test)
-    : BinaryRecordSourceFilter(admf.data_in_fly_ * 10, fr, timing_)
+  AdRegReadFilter(AdaptRegMF &admf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test, perf::TimingInstrument *timing)
+    : BinaryRecordSourceFilter(admf.data_in_fly_ * 10U, fr, timing)
       , admf_(admf)
       , blocks_test_(blocks_test)
       , iter_(1)  {
@@ -45,10 +45,11 @@ class AdRegFilter : public mf::StatusStack,
 {
 
  public:
-  AdRegFilter(AdaptRegMF &model, mf::ObjectPool<mf::Block> &free_block_pool)
+  AdRegFilter(AdaptRegMF &model, mf::ObjectPool<mf::Block> &free_block_pool, perf::TimingInstrument *timing)
     : tbb::filter(parallel)
       , admf_(model)
       , free_block_pool_(free_block_pool)
+      , timing_(timing)
   {}
 
   void *operator()(void *block) {
@@ -96,6 +97,7 @@ class AdRegFilter : public mf::StatusStack,
  private:
   AdaptRegMF&                 admf_;
   mf::ObjectPool<mf::Block>&  free_block_pool_;
+  perf::TimingInstrument *    timing_;
 };
 
 } // namespace mf

@@ -6,13 +6,18 @@
 namespace mf
 {
 
+/**
+ * BinaryRecordSourceFilter
+ *
+ * Pass binary records from source to tbb pipeline
+ */
 class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
                                   public mf::StatusStack,
                                   public tbb::filter  {
  public:
   BinaryRecordSourceFilter(const size_t bufferCount,
                            dmlc::SeekStream *fr,
-                           perf::TimingInstrument& timing_ref)
+                           perf::TimingInstrument *timing_ref)
     : mf::ObjectPool<std::vector<char> >(bufferCount)
       , tbb::filter(serial_in_order)
       , fr_(fr)
@@ -35,8 +40,7 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
       s_ = Time::now();
       in_time_ = in_time_.zero();
     }
-    //IF_CHECK_TIMING( perf::TimingItem inFunc(timing_ref_, FILTER_STAGE_READ, "FILTER_STAGE_READ") );
-    // TODO: Performance (if realloc of vector becomes a bottleneck): find best size in pool
+    IF_CHECK_TIMING( perf::TimingItem inFunc(timing_ref_, FILTER_STAGE_READ, "FILTER_STAGE_READ") );
     std::vector<char> *pbuffer = allocateObject();
     if (pbuffer) {
       int isize = 0;
@@ -53,6 +57,7 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
           if(onSourceStreamComplete()) {
             stream_.reset();
             fr_->Seek(0);
+            pass_ = 0;
             stream_ = std::unique_ptr<dmlc::istream>(new dmlc::istream(fr_, STREAM_BUFFER_SIZE));
             if (!stream_->read((char *) &isize, sizeof(isize)).fail()) {
               pbuffer->resize(isize);
@@ -83,7 +88,7 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
   std::chrono::time_point<Time>   s_;
   std::chrono::duration<float>    in_time_;
  public:
-  perf::TimingInstrument&         timing_ref_;
+  perf::TimingInstrument *        timing_ref_;
 };
 
 

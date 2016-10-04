@@ -12,20 +12,14 @@ class SgldReadFilter : public BinaryRecordSourceFilter
 {
  public:
 
-  SgldReadFilter(DPMF &dpmf, dmlc::SeekStream *fr, const mf::Blocks& blocks_test)
-    : BinaryRecordSourceFilter(dpmf.data_in_fly_ * 10, fr, timing_)
+  SgldReadFilter(DPMF &dpmf, dmlc::SeekStream *fr, const mf::Blocks& blocks_test, perf::TimingInstrument *timing)
+    : BinaryRecordSourceFilter(dpmf.data_in_fly_ * 10, fr, timing)
       , dpmf_(dpmf)
       , blocks_test_(blocks_test)
       , iter_(1)  {
   }
 
   bool onSourceStreamComplete() {
-//    int nn;
-//    printf("iter#%d\t%f\ttRMSE=%f\n",
-//           dpmf_,
-//           std::chrono::duration<float>(Time::now() - s_).count(),
-//           sqrt(dpmf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-//    );
     if (iter_ != dpmf_.iter_) {
       dpmf_.finish_round(blocks_test_, iter_++, s_);
       return true;
@@ -33,44 +27,10 @@ class SgldReadFilter : public BinaryRecordSourceFilter
     return false;
   }
 
-//  void *operator()(void *) {
-//    if(!pass_++) {
-//      s_ = Time::now();
-//    }
-//    if(!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
-//      std::vector<char> *pbuffer = allocateObject();
-//      if(pbuffer) {
-//        pbuffer->resize(isize_);
-//        if(!stream_->read(pbuffer->data(), isize_).fail()) {
-//          return pbuffer;
-//        }
-//        addStatus(IO_ERROR);
-//      } else {
-//        addStatus(POOL_ERROR);
-//      }
-//      freeObject(pbuffer);
-//    } else {
-//      if(stream_->eof()) {
-//        stream_.reset();
-//        fr_->Seek(0);
-//      }
-//      else {
-//        addStatus(IO_ERROR);
-//      }
-//    }
-//    return NULL;
-//  }
-
  public:
   DPMF &                          dpmf_;
   const mf::Blocks&               blocks_test_;
   int                             iter_;
-//  dmlc::SeekStream *              fr_;
-//  std::unique_ptr<dmlc::istream>  stream_;
-//  uint32                          isize_;
-//  std::atomic<int>                pass_;
-//  std::chrono::time_point<Time>   s_;
-  static perf::TimingInstrument   timing_;
 };
 
 
@@ -78,10 +38,11 @@ class SgldFilter : public mf::StatusStack,
                    public tbb::filter
 {
  public:
-  SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool)
-    : tbb::filter(/*serial_in_order*/ parallel)
+  SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool, perf::TimingInstrument *timing)
+    : tbb::filter(parallel)
       , dpmf_(dpmf)
-      , free_block_pool_(free_block_pool) {
+      , free_block_pool_(free_block_pool)
+      , timing_(timing) {
   }
 
   void *operator()(void *block) {
@@ -90,15 +51,12 @@ class SgldFilter : public mf::StatusStack,
     mf::Block *bk = (mf::Block *) block;
     const float eta = dpmf_.eta_;
     const float scal = eta * dpmf_.ntrain_ * dpmf_.bound_ * dpmf_.lambda_r_;
+    CHECK_LT(scal, 100.0); // should be a small number, like 0.01
     for (int i = 0; i < bk->user_size(); i++) {
       const mf::User &user = bk->user(i);
       const int uid = user.uid();
 
-      //std::cout << "User: " << uid << std::endl << std::flush;
-
       DCHECK_EQ(isFinite(dpmf_.user_array_[uid]), true);
-
-      //const float userStartValue = dpmf_.user_array_[uid];
 
       const int size = user.record_size();
       int thetaind = dpmf_.uniform_int_(generator);
@@ -109,8 +67,6 @@ class SgldFilter : public mf::StatusStack,
         const mf::User_Record &rec = user.record(j);
         const int vid = rec.vid();
 
-        //std::cout << "\tVid: " << vid << std::endl << std::flush;
-
         DCHECK_EQ(isFinite(dpmf_.video_array_[vid]), true);
         const float rating = rec.rating();
 
@@ -118,10 +74,11 @@ class SgldFilter : public mf::StatusStack,
         const uint64 gc = dpmf_.gcount.fetch_add(1);
         const uint64 vc = gc - dpmf_.gcountv[vid].exchange(gc);
         dpmf_.gmutex[vid].unlock();
+
         const uint64 uc = gc - dpmf_.gcountu[uid];
         dpmf_.gcountu[uid] = gc;
-        cblas_saxpy(dpmf_.dim_, sqrt(dpmf_.temp_ * eta * uc), dpmf_.noise_ + thetaind, 1, dpmf_.theta_[uid], 1);
-        cblas_saxpy(dpmf_.dim_, sqrt(dpmf_.temp_ * eta * vc), dpmf_.noise_ + phiind, 1, dpmf_.phi_[vid], 1);
+        cblas_saxpy(dpmf_.dim_, (float)sqrt(dpmf_.temp_ * eta * uc), dpmf_.noise_ + thetaind, 1, dpmf_.theta_[uid], 1);
+        cblas_saxpy(dpmf_.dim_, (float)sqrt(dpmf_.temp_ * eta * vc), dpmf_.noise_ + phiind, 1, dpmf_.phi_[vid], 1);
         dpmf_.user_array_[uid] += sqrt(dpmf_.temp_ * eta * uc) * dpmf_.noise_[thetaind + dpmf_.dim_];
         dpmf_.video_array_[vid] += sqrt(dpmf_.temp_ * eta * vc) * dpmf_.noise_[phiind + dpmf_.dim_];
 
@@ -129,7 +86,6 @@ class SgldFilter : public mf::StatusStack,
                 - cblas_sdot(dpmf_.dim_, dpmf_.theta_[uid], 1, dpmf_.phi_[vid], 1)
                 - dpmf_.user_array_[uid] - dpmf_.video_array_[vid] - dpmf_.gb_;
 
-        //const float preError = error;
         DCHECK_EQ(isFinite(error), true);
 
         error = scal * error;
@@ -144,10 +100,10 @@ class SgldFilter : public mf::StatusStack,
         cblas_saxpy(dpmf_.dim_, -eta * dpmf_.vr_[vid] * dpmf_.bound_, p, 1, dpmf_.phi_[vid], 1);
         cblas_saxpy(dpmf_.dim_, 1.0, q, 1, dpmf_.phi_[vid], 1);
 
-        //const float vidStartValue = dpmf_.video_array_[vid];
-
-        dpmf_.user_array_[uid] = (float)(1.0 - eta * dpmf_.lambda_ub_ * dpmf_.ur_[uid] * dpmf_.bound_) * dpmf_.user_array_[uid] + error;
-        dpmf_.video_array_[vid] = (float)(1.0 - eta * dpmf_.lambda_vb_ * dpmf_.vr_[vid] * dpmf_.bound_) * dpmf_.video_array_[vid] + error;
+        dpmf_.user_array_[uid]  =
+          (float)(1.0 - eta * dpmf_.lambda_ub_ * dpmf_.ur_[uid] * dpmf_.bound_) * dpmf_.user_array_[uid] + error;
+        dpmf_.video_array_[vid] =
+          (float)(1.0 - eta * dpmf_.lambda_vb_ * dpmf_.vr_[vid] * dpmf_.bound_) * dpmf_.video_array_[vid] + error;
 
         DCHECK_EQ(isFinite(dpmf_.user_array_[uid]), true);
         DCHECK_EQ(isFinite(dpmf_.video_array_[vid]), true);
@@ -163,6 +119,7 @@ class SgldFilter : public mf::StatusStack,
  private:
   DPMF&                         dpmf_;
   mf::ObjectPool<mf::Block>&    free_block_pool_;
+  perf::TimingInstrument *      timing_;
 };
 
 } // namespace mf

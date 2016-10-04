@@ -4,12 +4,12 @@
 #include "../src/dpmf.h"
 #include "../src/admf.h"
 #include "blocks.pb.h"
+#include "sync.h"
+#ifdef USE_JEMALLOC
+#include <jemalloc/jemalloc.h>
+#endif
 
 using namespace mf;
-
-perf::TimingInstrument SgdReadFilter::timing_;
-perf::TimingInstrument AdRegReadFilter::timing_;
-perf::TimingInstrument SgldReadFilter::timing_;
 
 static void show_help() {
   printf("Usage:\n");
@@ -61,9 +61,10 @@ static int run(MF& mf) {
   if(!rc) {
     std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(mf.train_data_));
     if (f.get()) {
-      SgdReadFilter read_f(mf, f.get(), blocks_test);
-      ParseFilter parse_f(mf.data_in_fly_, read_f);
-      SgdFilter sgd_f(mf, parse_f);
+      perf::TimingInstrument timing;
+      SgdReadFilter read_f(mf, f.get(), blocks_test, &timing);
+      ParseFilter parse_f(mf.data_in_fly_, read_f, &timing);
+      SgdFilter sgd_f(mf, parse_f, &timing);
       tbb::pipeline p;
       p.add_filter(read_f);
       p.add_filter(parse_f);
@@ -94,19 +95,15 @@ static int run(DPMF& dpmf) {
   if(!rc) {
     std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_));
     if (f.get()) {
-      SgldReadFilter read_f(dpmf, f.get(), blocks_test);
-      ParseFilter parse_f(dpmf.data_in_fly_, read_f);
-      SgldFilter sgld_f(dpmf, parse_f);
+      perf::TimingInstrument timing;
+      SgldReadFilter read_f(dpmf, f.get(), blocks_test, &timing);
+      ParseFilter parse_f(dpmf.data_in_fly_, read_f, &timing);
+      SgldFilter sgld_f(dpmf, parse_f, &timing);
       tbb::pipeline p;
       p.add_filter(read_f);
       p.add_filter(parse_f);
       p.add_filter(sgld_f);
       p.run(dpmf.data_in_fly_);
-//      const std::chrono::time_point<Time> s = Time::now();
-//      for (int i = 1; i <= dpmf.iter_; i++) {
-//        p.run(dpmf.data_in_fly_);
-//        dpmf.finish_round(blocks_test, i, s);
-//      }
       IF_CHECK_TIMING( read_f.printBlockedTime("read_f queue blocked for")   );
       IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f queue blocked for") );
       setOnError(sgld_f, rc);
@@ -130,9 +127,10 @@ static int run(AdaptRegMF& admf) {
     if(!rc) {
       std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_));
       if (f.get()) {
-        AdRegReadFilter read_f(admf, f.get(), blocks_test);
-        ParseFilter parse_f(admf.data_in_fly_, read_f);
-        AdRegFilter admf_f(admf, parse_f);
+        perf::TimingInstrument timing;
+        AdRegReadFilter read_f(admf, f.get(), blocks_test, &timing);
+        ParseFilter parse_f(admf.data_in_fly_, read_f, &timing);
+        AdRegFilter admf_f(admf, parse_f, &timing);
         tbb::pipeline p;
         p.add_filter(read_f);
         p.add_filter(parse_f);
@@ -225,5 +223,8 @@ int main(int argc, char** argv) {
   if(rc) {
     fprintf(stderr, "Error: %s\n", strerror(rc));
   }
+#ifdef USE_JEMALLOC
+  malloc_stats_print(NULL, NULL, NULL);
+#endif
   return rc;
 }

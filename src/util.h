@@ -148,11 +148,11 @@ inline float cal_grad(float r, float pred, int type) {
 }
 
 inline float next_float() {
-  return static_cast<float>( rand()) / (static_cast<float>( RAND_MAX ) + 1.0);
+  return static_cast<float>( rand()) / (static_cast<float>( RAND_MAX ) + 1.0f);
 }
 
 inline float next_float2() {
-  return (static_cast<float>( rand()) + 1.0) / (static_cast<float>(RAND_MAX) + 2.0);
+  return (static_cast<float>( rand()) + 1.0f) / (static_cast<float>(RAND_MAX) + 2.0f);
 }
 
 inline float normsqr(float *x, int num) {
@@ -162,12 +162,12 @@ inline float normsqr(float *x, int num) {
 inline float sample_normal() {
   float x, y, s;
   do {
-    x = 2 * next_float2() - 1.0;
-    y = 2 * next_float2() - 1.0;
+    x = 2 * next_float2() - 1.0f;
+    y = 2 * next_float2() - 1.0f;
     s = x * x + y * y;
   } while (s >= 1.0 || s == 0.0);
 
-  return x * sqrt(-2.0 * log(s) / s);
+  return (float)(x * sqrt(-2.0f * log(s) / s));
 }
 
 inline float sample_gamma(float alpha, float beta) {
@@ -176,15 +176,15 @@ inline float sample_gamma(float alpha, float beta) {
     do {
       u = next_float();
     } while (u == 0.0);
-    return sample_gamma(alpha + 1.0, beta) * pow(u, 1.0 / alpha);
+    return (float)(sample_gamma(alpha + 1.0f, beta) * pow(u, 1.0f / alpha));
   } else {
     float d, c, x, v, u;
-    d = alpha - 1.0 / 3.0;
-    c = 1.0 / sqrt(9.0 * d);
+    d = alpha - 1.0f / 3.0f;
+    c = 1.0f / (float)sqrt(9.0f * d);
     do {
       do {
         x = sample_normal();
-        v = 1.0 + c * x;
+        v = 1.0f + c * x;
       } while (v <= 0.0);
       v = v * v * v;
       u = next_float();
@@ -195,8 +195,8 @@ inline float sample_gamma(float alpha, float beta) {
 }
 
 inline void gamma_posterior(float &lambda, float prior_alpha, float prior_beta, float psum_sqr, float psum_cnt) {
-  float alpha = prior_alpha + 0.5 * psum_cnt;
-  float beta = prior_beta + 0.5 * psum_sqr;
+  float alpha = prior_alpha + 0.5f * psum_cnt;
+  float beta = prior_beta + 0.5f * psum_sqr;
   lambda = sample_gamma(alpha, beta);
 }
 

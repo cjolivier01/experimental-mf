@@ -35,12 +35,11 @@ class MF
   virtual ~MF() {
     if(theta_) {
       free_aligned_alloc(theta_, nr_users_);
+      if (phi_) {
+        free_aligned_alloc(phi_, nr_videos_);
+      }
+      free(theta_);
     }
-    if(phi_) {
-      free_aligned_alloc(phi_, nr_videos_);
-    }
-
-    free(theta_);
     free(user_array_);
   }
 
@@ -83,11 +82,12 @@ class DPMF : public MF
       , lambda_ub_(1e2)
       , lambda_vb_(1e2)
       , ntrain_(0)
-      , ntest_(0)
-  {}
+      , ntest_(0) {}
 
   ~DPMF() {
-    free(theta_[0]), free(theta_), free(user_array_), free(noise_);
+    if(noise_) {
+      free(noise_);
+    }
     delete[] gcountu;
     delete[] gcountv;
     delete[] gmutex;
@@ -153,7 +153,15 @@ class AdaptRegMF : public MF
       , lam_bu_(lambda)
       , lam_bv_(lambda) {}
 
-  ~AdaptRegMF() {}
+  ~AdaptRegMF() {
+    if(theta_old_) {
+      free_aligned_alloc(theta_old_, nr_users_);
+      if(phi_old_) {
+        free_aligned_alloc(phi_old_, nr_videos_);
+      }
+      free(theta_old_);
+    }
+  }
 
   void init1();
 

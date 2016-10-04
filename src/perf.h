@@ -173,16 +173,20 @@ class TimingInstrument {
 };
 
 struct TimingItem {
-  TimingItem(TimingInstrument& ti, int id, const char *name)
+  TimingItem(TimingInstrument *ti, int id, const char *name)
     : ti_(ti)
     , id_(id) {
-    ti_.startTiming(id, name);
+    if(ti_) {
+      ti_->startTiming(id, name);
+    }
   }
   ~TimingItem() {
-    ti_.stopTiming(id_);
+    if(ti_) {
+      ti_->stopTiming(id_);
+    }
   }
  private:
-  TimingInstrument& ti_;
+  TimingInstrument *ti_;
   const int         id_;
 };
 

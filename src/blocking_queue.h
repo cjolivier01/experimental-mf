@@ -11,6 +11,7 @@
 #include <iostream>
 #include <condition_variable>
 #include "perf.h"
+#include "sync.h"
 
 namespace mf
 {
@@ -22,41 +23,6 @@ namespace mf
 #else
 #define IF_CHECK_TIMING(__t$)
 #endif
-
-/**
- * WeakSemaphore
- * Simple semaphore which does not make any attempt to
- * maintain lock/release order
- */
-class WeakSemaphore
-{
- public:
-  inline WeakSemaphore(size_t count = 0)
-  : count_(count) {
-  }
-
-  inline void notify()
-  {
-    std::unique_lock<std::mutex> lck(mutex_);
-    ++count_;
-    cv_.notify_one();
-  }
-
-  inline void wait()
-  {
-    std::unique_lock<std::mutex> lck(mutex_);
-    while(count_ == 0)
-    {
-      cv_.wait(lck);
-    }
-    --count_;
-  }
-
- private:
-  std::mutex                mutex_;
-  std::condition_variable   cv_;
-  std::atomic<size_t>       count_;
-};
 
 template<class Type>
 class BlockingQueue
@@ -73,7 +39,7 @@ class BlockingQueue
       std::unique_lock<std::mutex> lck(mutex_);
       q_.push(t);
     }
-    sema_.notify();
+    sema_.post();
   }
 
   Type pop() {
