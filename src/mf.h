@@ -34,8 +34,6 @@ class SgdReadFilter : public BinaryRecordSourceFilter
            std::chrono::duration<float>(Time::now() - s_).count(),
            sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
     );
-    //IF_CHECK_TIMING(timing_.print(true));
-    //IF_CHECK_TIMING(printBlockedTime("SgdReadFilter buffer queue blocked", false));
 
     // Check if we reached the desired number of iterations
     if (iter_ != mf_.iter_) {
@@ -69,6 +67,7 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
   }
 
   void *operator()(void *chunk) {
+    IF_CHECK_TIMING( awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_PARSE, "FILTER_STAGE_PARSE") );
     std::vector<char> *p = (std::vector<char> *) chunk;
     if (p) {
       // Get next block object in free queue
