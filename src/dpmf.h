@@ -3,60 +3,74 @@
 
 #include "model.h"
 #include "filter_util.h"
+#include "binary_record_source_filter.h"
 
 namespace mf
 {
 
-class SgldReadFilter : public mf::ObjectPool< std::vector<char> >,
-                       public mf::StatusStack,
-                       public tbb::filter
+class SgldReadFilter : public BinaryRecordSourceFilter
 {
  public:
 
-  SgldReadFilter(DPMF &dpmf, dmlc::SeekStream *fr)
-    : mf::ObjectPool<std::vector<char> >(dpmf.data_in_fly_ * 10)
-      , tbb::filter(serial_in_order)
+  SgldReadFilter(DPMF &dpmf, dmlc::SeekStream *fr, const mf::Blocks& blocks_test)
+    : BinaryRecordSourceFilter(dpmf.data_in_fly_ * 10, fr, timing_)
       , dpmf_(dpmf)
-      , fr_(fr)
-      , stream_(std::unique_ptr<dmlc::istream>(new dmlc::istream(fr, STREAM_BUFFER_SIZE)))
-      , pass_(0)  {
+      , blocks_test_(blocks_test)
+      , iter_(1)  {
   }
 
-  void *operator()(void *) {
-    if(!pass_++) {
-      s_ = Time::now();
+  bool onSourceStreamComplete() {
+//    int nn;
+//    printf("iter#%d\t%f\ttRMSE=%f\n",
+//           dpmf_,
+//           std::chrono::duration<float>(Time::now() - s_).count(),
+//           sqrt(dpmf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+//    );
+    if (iter_ != dpmf_.iter_) {
+      dpmf_.finish_round(blocks_test_, iter_++, s_);
+      return true;
     }
-    if(!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
-      std::vector<char> *pbuffer = allocateObject();
-      if(pbuffer) {
-        pbuffer->resize(isize_);
-        if(!stream_->read(pbuffer->data(), isize_).fail()) {
-          return pbuffer;
-        }
-        addStatus(IO_ERROR);
-      } else {
-        addStatus(POOL_ERROR);
-      }
-      freeObject(pbuffer);
-    } else {
-      if(stream_->eof()) {
-        stream_.reset();
-        fr_->Seek(0);
-      }
-      else {
-        addStatus(IO_ERROR);
-      }
-    }
-    return NULL;
+    return false;
   }
+
+//  void *operator()(void *) {
+//    if(!pass_++) {
+//      s_ = Time::now();
+//    }
+//    if(!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
+//      std::vector<char> *pbuffer = allocateObject();
+//      if(pbuffer) {
+//        pbuffer->resize(isize_);
+//        if(!stream_->read(pbuffer->data(), isize_).fail()) {
+//          return pbuffer;
+//        }
+//        addStatus(IO_ERROR);
+//      } else {
+//        addStatus(POOL_ERROR);
+//      }
+//      freeObject(pbuffer);
+//    } else {
+//      if(stream_->eof()) {
+//        stream_.reset();
+//        fr_->Seek(0);
+//      }
+//      else {
+//        addStatus(IO_ERROR);
+//      }
+//    }
+//    return NULL;
+//  }
 
  public:
   DPMF &                          dpmf_;
-  dmlc::SeekStream *              fr_;
-  std::unique_ptr<dmlc::istream>  stream_;
-  uint32                          isize_;
-  std::atomic<int>                pass_;
-  std::chrono::time_point<Time>   s_;
+  const mf::Blocks&               blocks_test_;
+  int                             iter_;
+//  dmlc::SeekStream *              fr_;
+//  std::unique_ptr<dmlc::istream>  stream_;
+//  uint32                          isize_;
+//  std::atomic<int>                pass_;
+//  std::chrono::time_point<Time>   s_;
+  static perf::TimingInstrument   timing_;
 };
 
 
@@ -65,7 +79,7 @@ class SgldFilter : public mf::StatusStack,
 {
  public:
   SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool)
-    : tbb::filter(serial_in_order /*parallel*/)
+    : tbb::filter(/*serial_in_order*/ parallel)
       , dpmf_(dpmf)
       , free_block_pool_(free_block_pool) {
   }

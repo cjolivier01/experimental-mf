@@ -84,7 +84,6 @@ class DPMF : public MF
       , lambda_vb_(1e2)
       , ntrain_(0)
       , ntest_(0)
-      , auto_eta_(false)
   {}
 
   ~DPMF() {
@@ -110,7 +109,7 @@ class DPMF : public MF
 
   void finish_noise();
 
-  void finish_round(mf::Blocks &blocks_test, int round, const std::chrono::time_point<Time>& s);
+  void finish_round(const mf::Blocks &blocks_test, int round, const std::chrono::time_point<Time>& s);
 
   void sample_hyper(float mse);
 
@@ -131,7 +130,6 @@ class DPMF : public MF
   float epsilon_, bound_;
   float lambda_r_, lambda_ub_, lambda_vb_;
   int ntrain_, ntest_;
-  bool auto_eta_;
   char pad[CACHE_LINE_SIZE];
   std::atomic<uint64> gcount;
 };

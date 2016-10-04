@@ -8,6 +8,8 @@
 using namespace mf;
 
 perf::TimingInstrument SgdReadFilter::timing_;
+perf::TimingInstrument AdRegReadFilter::timing_;
+perf::TimingInstrument SgldReadFilter::timing_;
 
 static void show_help() {
   printf("Usage:\n");
@@ -92,18 +94,19 @@ static int run(DPMF& dpmf) {
   if(!rc) {
     std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_));
     if (f.get()) {
-      SgldReadFilter read_f(dpmf, f.get());
+      SgldReadFilter read_f(dpmf, f.get(), blocks_test);
       ParseFilter parse_f(dpmf.data_in_fly_, read_f);
       SgldFilter sgld_f(dpmf, parse_f);
       tbb::pipeline p;
       p.add_filter(read_f);
       p.add_filter(parse_f);
       p.add_filter(sgld_f);
-      const std::chrono::time_point<Time> s = Time::now();
-      for (int i = 1; i <= dpmf.iter_; i++) {
-        p.run(dpmf.data_in_fly_);
-        dpmf.finish_round(blocks_test, i, s);
-      }
+      p.run(dpmf.data_in_fly_);
+//      const std::chrono::time_point<Time> s = Time::now();
+//      for (int i = 1; i <= dpmf.iter_; i++) {
+//        p.run(dpmf.data_in_fly_);
+//        dpmf.finish_round(blocks_test, i, s);
+//      }
       IF_CHECK_TIMING( read_f.printBlockedTime("read_f queue blocked for")   );
       IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f queue blocked for") );
       setOnError(sgld_f, rc);
@@ -160,7 +163,6 @@ int main(int argc, char** argv) {
   int measure = 0;
   float eta_reg = 2e-3f;
   char* valid_data=NULL;
-  bool have_eta = false;
   for(int i = 1; i < argc; i++) {
     if(!strcmp(argv[i], "--train"))            train_data = argv[++i];
     else if(!strcmp(argv[i], "--test"))        test_data = argv[++i];
@@ -174,7 +176,7 @@ int main(int argc, char** argv) {
     else if(!strcmp(argv[i], "--nv"))          nv  = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--fly"))         fly  = atoi(argv[++i]);
     else if(!strcmp(argv[i], "--stride"))      stride  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--eta"))         { eta = atof(argv[++i]); have_eta = true; }
+    else if(!strcmp(argv[i], "--eta"))         eta = atof(argv[++i]);
     else if(!strcmp(argv[i], "--lambda"))      lambda = atof(argv[++i]);
     else if(!strcmp(argv[i], "--gam"))         gam = atof(argv[++i]);
     else if(!strcmp(argv[i], "--bias"))        g_bias = atof(argv[++i]);
@@ -206,13 +208,9 @@ int main(int argc, char** argv) {
     rc = run(mf);
   }
   else if (!strcmp(alg, "dpmf")) {
-    if(!have_eta) {
-      eta = 1e-10;
-    }
     DPMF dpmf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
                   g_bias, nu, nv, fly, stride, hypera, hyperb, epsilon, tau,
                   noise_size, temp, mineta);
-    dpmf.auto_eta_ = !have_eta;
     rc = run(dpmf);
   }
   else if (!strcmp(alg, "admf")) {

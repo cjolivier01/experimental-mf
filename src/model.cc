@@ -366,8 +366,9 @@ void DPMF::init() {
   //sample train data and precompute weights according to training data
   sample_train_and_precompute_weight();
 
-  if(auto_eta_ && ntrain_) {
-    eta_ = 1.0e-2f/ntrain_;
+  if(ntrain_) {
+    // eta is divided over training items
+    eta_.store(eta_.load() / ntrain_);
   }
 
   //bookkeeping
@@ -475,7 +476,7 @@ int DPMF::sample_train_and_precompute_weight() {
   return rc;
 }
 
-void DPMF::finish_round(mf::Blocks &blocks_test, int round, const std::chrono::time_point<Time>& s) {
+void DPMF::finish_round(const mf::Blocks &blocks_test, int round, const std::chrono::time_point<Time>& s) {
   finish_noise();
   int ntr, nt;
   float mse = calc_mse(train_sample_, ntr);

@@ -3,80 +3,41 @@
 
 #include "model.h"
 #include "filter_util.h"
+#include "binary_record_source_filter.h"
 
 namespace mf
 {
 
-class AdRegReadFilter : public mf::ObjectPool< std::vector<char> >,
-                        public mf::StatusStack,
-                        public tbb::filter
+class AdRegReadFilter : public BinaryRecordSourceFilter
 {
  public:
   AdRegReadFilter(AdaptRegMF &admf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test)
-    : mf::ObjectPool<std::vector<char> >(admf.data_in_fly_ * 10)
-      , tbb::filter(serial_in_order)
+    : BinaryRecordSourceFilter(admf.data_in_fly_ * 10, fr, timing_)
       , admf_(admf)
       , blocks_test_(blocks_test)
-      , fr_(fr)
-      , stream_(std::unique_ptr<dmlc::istream>(new dmlc::istream(fr)))
-      , iter_(1)
-      , pass_(0) {
+      , iter_(1)  {
   }
 
-  void *operator()(void *) {
-    if(!pass_++) {
-      s_ = Time::now();
+  bool onSourceStreamComplete() {
+    int nn;
+    printf("iter#%d\t%f\ttRMSE=%f\n",
+           iter_,
+           std::chrono::duration<float>(Time::now() - s_).count(),
+           sqrt(admf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+    );
+    if (iter_ != admf_.iter_) {
+      admf_.seteta(++iter_);
+      admf_.set_etareg(iter_);
+      return true;
     }
-    std::vector<char> *pbuffer = allocateObject();
-    if(pbuffer) {
-      if (!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
-        pbuffer->resize(isize_);
-        if(!stream_->read(pbuffer->data(), isize_).fail()) {
-          return pbuffer;
-        }
-        addStatus(IO_ERROR);
-      } else {
-        if(stream_->eof()) {
-          int nn;
-          printf("iter#%d\t%f\ttRMSE=%f\n",
-                 iter_,
-                 std::chrono::duration<float>(Time::now() - s_).count(),
-                 sqrt(admf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-          );
-          if (iter_ != admf_.iter_) {
-            admf_.seteta(++iter_);
-            admf_.set_etareg(iter_);
-            stream_.reset();
-            fr_->Seek(0);
-            stream_ = std::unique_ptr<dmlc::istream>(new dmlc::istream(fr_));
-            if(!stream_->read((char *)&isize_, sizeof(isize_)).fail()) {
-              pbuffer->resize(isize_);
-              if (!stream_->read(pbuffer->data(), isize_).fail()) {
-                return pbuffer;
-              }
-            }
-            addStatus(IO_ERROR);
-          }
-        } else {
-          addStatus(IO_ERROR);
-        }
-      }
-      freeObject(pbuffer);
-    } else {
-      addStatus(POOL_ERROR);
-    }
-    return NULL;
+    return false;
   }
 
  private:
   AdaptRegMF&                     admf_;
   const mf::Blocks&               blocks_test_;
-  dmlc::SeekStream *              fr_;
-  std::unique_ptr<dmlc::istream>  stream_;
-  uint32                          isize_;
   int                             iter_;
-  std::atomic<int>                pass_;
-  std::chrono::time_point<Time>   s_;
+  static perf::TimingInstrument   timing_;
 };
 
 class AdRegFilter : public mf::StatusStack,
@@ -125,7 +86,7 @@ class AdRegFilter : public mf::StatusStack,
         DCHECK_EQ(isFinite(admf_.user_array_[uid]), true);
         DCHECK_EQ(isFinite(admf_.video_array_[vid]), true);
       }
-      const int ii = rand() % admf_.recsv_.size();
+      const size_t ii = rand() % admf_.recsv_.size();
       admf_.updateReg(admf_.recsv_[ii].u_, admf_.recsv_[ii].v_, admf_.recsv_[ii].r_);
     }
     free_block_pool_.freeObject(bk);

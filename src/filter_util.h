@@ -103,6 +103,12 @@ class StatusStack {
   const size_t        max_statuses_;
 };
 
+enum FilterStages {
+  FILTER_STAGE_READ,
+  FILTER_STAGE_PARSE,
+  FILTER_STAGE_CALC
+};
+
 } // namespace mf
 
 #endif //FASTMF_FILTER_UTIL_H
