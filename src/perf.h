@@ -1,12 +1,12 @@
-#ifndef FASTMF_PERF_H
-#define FASTMF_PERF_H
+#ifndef _AWSDL_PERF_H
+#define _AWSDL_PERF_H
 
 #include <iostream>
 #include <sys/time.h>
 #include <iomanip>
 #include <unordered_set>
 
-namespace mf
+namespace awsdl
 {
 namespace perf
 {
@@ -244,6 +244,6 @@ class DebugCheckUsing {
 #endif //NDEBUG
 
 } // namespace perf
-} // namespace mf
+} // namespace awsdl
 
-#endif //FASTMF_PERF_H
+#endif //_AWSDL_PERF_H

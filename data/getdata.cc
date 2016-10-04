@@ -506,7 +506,7 @@ int main(int argc, char** argv) {
       hint();
       rc = 1;
     } else {
-      const uint64_t startTime = mf::perf::getTickCount();
+      const uint64_t startTime = awsdl::perf::getTickCount();
       if(!strcmp(method, "raw2proto")) {
         rc = raw_to_protobuf(read, write, numRatingMatrixSplits, stageSize, ranges);
       } else if (!strcmp(method, "userwise")) {
@@ -524,7 +524,7 @@ int main(int argc, char** argv) {
       } else {
         rc = 1;
       }
-      std::cout << "Process time: " << (mf::perf::getTickCount() - startTime) << " ms" << std::endl;
+      std::cout << "Process time: " << (awsdl::perf::getTickCount() - startTime) << " ms" << std::endl;
     }
   }
   return rc;

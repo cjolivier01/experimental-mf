@@ -43,10 +43,10 @@ class BlockingQueue
   }
 
   Type pop() {
-    IF_CHECK_TIMING( const uint64_t start = perf::getMicroTickCount(); )
+    IF_CHECK_TIMING( const uint64_t start = awsdl::perf::getMicroTickCount(); )
     sema_.wait();
     std::unique_lock<std::mutex> lck(mutex_);
-    IF_CHECK_TIMING( blocked_time_.fetch_add( perf::getMicroTickCount() - start ) );
+    IF_CHECK_TIMING( blocked_time_.fetch_add( awsdl::perf::getMicroTickCount() - start ) );
     CHECK(!q_.empty());
     Type t = q_.front();
     q_.pop();
@@ -54,10 +54,10 @@ class BlockingQueue
   }
 
   Type &pop(Type &t) {
-    IF_CHECK_TIMING( const uint64_t start = perf::getMicroTickCount(); )
+    IF_CHECK_TIMING( const uint64_t start = awsdl::perf::getMicroTickCount(); )
     sema_.wait();
     std::unique_lock<std::mutex> lck(mutex_);
-    IF_CHECK_TIMING( blocked_time_.fetch_add( perf::getMicroTickCount() - start ) );
+    IF_CHECK_TIMING( blocked_time_.fetch_add( awsdl::perf::getMicroTickCount() - start ) );
     CHECK(!q_.empty());
     t = q_.front();
     q_.pop();
@@ -86,7 +86,7 @@ class BlockingQueue
     if(!label.empty()) {
       std::cout << label << ": ";
     }
-    std::cout << perf::toString(MICRO2MSF(blocked_time_.load()))
+    std::cout << awsdl::perf::toString(MICRO2MSF(blocked_time_.load()))
               << " ms" << std::endl << std::flush;
     if(reset) {
       blocked_time_.store(0);
@@ -97,10 +97,10 @@ class BlockingQueue
 
  private:
   mutable std::mutex            mutex_;
-  WeakSemaphore                 sema_;
+  awsdl::semaphore              sema_;
   std::queue<Type>              q_;
   IF_CHECK_TIMING(
-    std::atomic<uint64_t>           blocked_time_;
+    std::atomic<uint64_t>       blocked_time_;
   )
 };
 

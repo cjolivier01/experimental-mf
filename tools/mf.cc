@@ -61,7 +61,7 @@ static int run(MF& mf) {
   if(!rc) {
     std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(mf.train_data_));
     if (f.get()) {
-      perf::TimingInstrument timing;
+      awsdl::perf::TimingInstrument timing;
       SgdReadFilter read_f(mf, f.get(), blocks_test, &timing);
       ParseFilter parse_f(mf.data_in_fly_, read_f, &timing);
       SgdFilter sgd_f(mf, parse_f, &timing);
@@ -76,6 +76,7 @@ static int run(MF& mf) {
       setOnError(sgd_f, rc);
       setOnError(parse_f, rc);
       setOnError(read_f, rc);
+      timing.print();
     } else {
       rc = errno;
     }
@@ -95,7 +96,7 @@ static int run(DPMF& dpmf) {
   if(!rc) {
     std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_));
     if (f.get()) {
-      perf::TimingInstrument timing;
+      awsdl::perf::TimingInstrument timing;
       SgldReadFilter read_f(dpmf, f.get(), blocks_test, &timing);
       ParseFilter parse_f(dpmf.data_in_fly_, read_f, &timing);
       SgldFilter sgld_f(dpmf, parse_f, &timing);
@@ -109,6 +110,7 @@ static int run(DPMF& dpmf) {
       setOnError(sgld_f, rc);
       setOnError(parse_f, rc);
       setOnError(read_f, rc);
+      timing.print();
     } else {
       rc = errno;
     }
@@ -127,7 +129,7 @@ static int run(AdaptRegMF& admf) {
     if(!rc) {
       std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_));
       if (f.get()) {
-        perf::TimingInstrument timing;
+        awsdl::perf::TimingInstrument timing;
         AdRegReadFilter read_f(admf, f.get(), blocks_test, &timing);
         ParseFilter parse_f(admf.data_in_fly_, read_f, &timing);
         AdRegFilter admf_f(admf, parse_f, &timing);
@@ -141,6 +143,7 @@ static int run(AdaptRegMF& admf) {
         setOnError(admf_f, rc);
         setOnError(parse_f, rc);
         setOnError(read_f, rc);
+        timing.print();
       } else {
         rc = errno;
         CHECK_NE(rc, 0);
@@ -199,7 +202,7 @@ int main(int argc, char** argv) {
     return 1;
   }
   int rc = 0;
-  perf::TimedScope timedScope;
+  awsdl::perf::TimedScope timedScope;
   if(!alg || !*alg || !strcmp(alg, "mf")) {
     MF mf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
               g_bias, nu, nv, fly, stride);

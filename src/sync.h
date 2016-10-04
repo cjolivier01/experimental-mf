@@ -1,5 +1,5 @@
-#ifndef _FASTMF_SYNC_H
-#define _FASTMF_SYNC_H
+#ifndef _AWSDL_SYNC_H
+#define _AWSDL_SYNC_H
 
 #include "condition_algorithm_8a.h"
 #include <thread>
@@ -10,7 +10,9 @@
 #include <semaphore.h>
 #include <dmlc/logging.h>
 
-namespace mf
+//#define AWSDL_DEBUG_LOG_THREADS
+
+namespace awsdl
 {
 
 template<class ObjectType>
@@ -19,7 +21,7 @@ class SharedObject
  public:
 
   typedef std::shared_ptr<ObjectType> SharedPtr;
-  typedef std::weak_ptr<ObjectType> WeakPtr;
+  typedef std::weak_ptr<ObjectType>   WeakPtr;
 
   // Declarable in child scope without qualifiers
 
@@ -62,7 +64,7 @@ class semaphore
 {
   sem_t sem_;
  public:
-  semaphore(int initialCount) {
+  semaphore(int initialCount = 0) {
     const int rc = sem_init(&sem_, 0, initialCount);
     CHECK_EQ(rc, 0);
   }
@@ -199,77 +201,77 @@ class MultiEvent : public SharedObject<MultiEvent>
     typedef mutex mutex_type;
     typedef atomic_integer integer_type;
    private:
-    integer_type m_nwaiters_blocked;
-    integer_type m_nwaiters_gone;
-    integer_type m_nwaiters_to_unblock;
-    semaphore_type m_sem_block_queue;
-    semaphore_type m_sem_block_lock;
-    mutex_type m_mtx_unblock_lock;
+    integer_type    nwaiters_blocked_;
+    integer_type    nwaiters_gone_;
+    integer_type    nwaiters_to_unblock_;
+    semaphore_type  sem_block_queue_;
+    semaphore_type  sem_block_lock_;
+    mutex_type      mtx_unblock_lock_;
    public:
-    integer_type &get_nwaiters_blocked() { return m_nwaiters_blocked; }
+    integer_type &get_nwaiters_blocked() { return nwaiters_blocked_; }
 
-    integer_type &get_nwaiters_gone() { return m_nwaiters_gone; }
+    integer_type &get_nwaiters_gone() { return nwaiters_gone_; }
 
-    integer_type &get_nwaiters_to_unblock() { return m_nwaiters_to_unblock; }
+    integer_type &get_nwaiters_to_unblock() { return nwaiters_to_unblock_; }
 
-    semaphore_type &get_sem_block_queue() { return m_sem_block_queue; }
+    semaphore_type &get_sem_block_queue() { return sem_block_queue_; }
 
-    semaphore_type &get_sem_block_lock() { return m_sem_block_lock; }
+    semaphore_type &get_sem_block_lock() { return sem_block_lock_; }
 
-    mutex_type &get_mtx_unblock_lock() { return m_mtx_unblock_lock; }
+    mutex_type &get_mtx_unblock_lock() { return mtx_unblock_lock_; }
 
     ConditionMembers()
-      : m_nwaiters_blocked(0)
-        , m_nwaiters_gone(0)
-        , m_nwaiters_to_unblock(0)
-        , m_sem_block_queue(0)
-        , m_sem_block_lock(1) {}
+      : nwaiters_blocked_(0)
+        , nwaiters_gone_(0)
+        , nwaiters_to_unblock_(0)
+        , sem_block_queue_(0)
+        , sem_block_lock_(1) {}
 
   };
 
-  std::mutex m_mtx;
-  condition_8a_wrapper<ConditionMembers> m_wrapper8a;
-  std::atomic<bool> m_signaled;
-  std::atomic<bool> m_manualReset;
+  std::mutex                              mtx_;
+  condition_8a_wrapper<ConditionMembers>  wrapper8a_;
+  std::atomic<bool>                       signaled_;
+  std::atomic<bool>                       manualReset_;
 
  public:
   MultiEvent(bool manualReset = true)
-    : m_signaled(false)
-      , m_manualReset(manualReset) {}
+    : signaled_(false)
+      , manualReset_(manualReset) {}
 
   void setManualReset(bool manualReset) {
-    m_manualReset.store(manualReset);
+    manualReset_.store(manualReset);
   }
 
   void signal() {
-    std::unique_lock<std::mutex> lk(m_mtx);
-    m_signaled.exchange(true);
-    m_wrapper8a.notify_all();
+    std::unique_lock<std::mutex> lk(mtx_);
+    signaled_.exchange(true);
+    wrapper8a_.notify_all();
   }
 
   void wait() {
-    if (!m_manualReset.load() || !m_signaled.load()) {
-      condition_algorithm_8a<ConditionMembers>::scoped_lock<std::mutex> lk(m_mtx);
-      if (!m_signaled.load()) {
-        m_wrapper8a.wait(lk);
+    if (!manualReset_.load() || !signaled_.load()) {
+      condition_algorithm_8a<ConditionMembers>::scoped_lock<std::mutex> lk(mtx_);
+      if (!signaled_.load()) {
+        wrapper8a_.wait(lk);
       }
     }
   }
 
   bool try_wait(const size_t ms = 0) {
-    if (!m_manualReset.load() || !m_signaled.load()) {
-      condition_algorithm_8a<ConditionMembers>::scoped_lock<std::mutex> lk(m_mtx);
-      if (!m_signaled.load()) {
+    if (!manualReset_.load() || !signaled_.load()) {
+      condition_algorithm_8a<ConditionMembers>::scoped_lock<std::mutex> lk(mtx_);
+      if (!signaled_.load()) {
         const Time::time_point tryUntil = Time::now() + Time::duration(ms * 1000000);
-        return m_wrapper8a.timed_wait(lk, tryUntil);
+        return wrapper8a_.timed_wait(lk, tryUntil);
       }
     }
     return true;
   }
 
   void reset() {
-    condition_algorithm_8a<ConditionMembers>::scoped_lock<std::mutex> lk(m_mtx);
-    m_signaled.exchange(false);
+    condition_algorithm_8a<ConditionMembers>::scoped_lock<std::mutex> lk(mtx_);
+    signaled_.exchange(false);
   }
 };
 
@@ -280,12 +282,12 @@ class ThreadGroup : public SharedObject<ThreadGroup>
 
   struct ReadLocker
   {
-    SharedMutex *m_p;
+    SharedMutex *m_;
 
     ReadLocker(SharedMutex &m)
-      : m_p(&m) { if (m_p) m_p->lock_shared(); }
+      : m_(&m) { if (m_) m_->lock_shared(); }
 
-    ~ReadLocker() { if (m_p) m_p->unlock_shared(); }
+    ~ReadLocker() { if (m_) m_->unlock_shared(); }
   };
 
  public:
@@ -293,21 +295,24 @@ class ThreadGroup : public SharedObject<ThreadGroup>
   {
     typedef std::thread Thread;
 
-    std::string m_name;
-    mutable SharedMutex m_csThread;
-    std::atomic<Thread *> m_thread;
-    MultiEvent::SharedPtr m_evReady;
-    MultiEvent::SharedPtr m_evStart;
-    ThreadGroup *m_owner;
-    std::atomic<bool> m_shutdown_requested;
-    bool m_autoRemove;
+    std::string             name_;
+    mutable SharedMutex     csThread_;
+    std::atomic<Thread *>   thread_;
+    MultiEvent::SharedPtr   evReady_;
+    MultiEvent::SharedPtr   evStart_;
+    ThreadGroup *           owner_;
+    std::atomic<bool>       shutdown_requested_;
+    bool                    autoRemove_;
 
    protected:
     static void startHere(ManagedThread::SharedPtr pThis) {
-      pThis->m_evReady->signal();
-      pThis->run_thread(pThis->m_thread);
-      if (pThis->m_autoRemove) {
-        pThis->m_owner->remove_thread(pThis);
+      pThis->evReady_->signal();
+      pThis->run_thread(pThis->thread_);
+#if defined(AWSDL_DEBUG_LOG_THREADS) && !defined(NDEBUG)
+      LOG(INFO) << "Thread " << pThis->name_ << " exiting";
+#endif
+      if (pThis->autoRemove_) {
+        pThis->owner_->remove_thread(pThis);
       }
     }
 
@@ -316,94 +321,101 @@ class ThreadGroup : public SharedObject<ThreadGroup>
 
    public:
     ManagedThread(const char *threadName, ThreadGroup *owner, std::thread *thrd = NULL)
-      : m_name(threadName)
-        , m_thread(thrd)
-        , m_evReady(MultiEvent::create())
-        , m_evStart(MultiEvent::create())
-        , m_owner(owner)
-        , m_shutdown_requested(false)
-        , m_autoRemove(false) {
+      : name_(threadName)
+        , thread_(thrd)
+        , evReady_(MultiEvent::create())
+        , evStart_(MultiEvent::create())
+        , owner_(owner)
+        , shutdown_requested_(false)
+        , autoRemove_(false) {
       CHECK_NOTNULL(owner);
     }
 
     virtual ~ManagedThread() {
-#ifdef DEBUG
+#if defined(AWSDL_DEBUG_LOG_THREADS) && !defined(NDEBUG)
       const std::string name = getName();
-            GLOG(Grover::Util::GTrace::Sev::NOTI, "ManagedThread::~ManagedThread( %s )\n", name.c_str());
+            LOG(INFO) << "ManagedThread::~ManagedThread( " << name << " )";
 #endif
       if (!is_current_thread()) {
         request_shutdown();
         join();
       }
-      WriteLocker guard(m_csThread);
-      if (m_thread) {
-        Thread *thrd = m_thread;
-        m_thread = NULL;
+      WriteLocker guard(csThread_);
+      if (thread_) {
+        Thread *thrd = thread_;
+        thread_ = NULL;
         delete thrd;
       }
     }
 
     const char *getName() const {
-      return m_name.c_str();
+      return name_.c_str();
     }
 
     static bool launch(ManagedThread::SharedPtr pThis, bool autoRemove = false) {
-      WriteLocker guard(pThis->m_csThread);
-      CHECK_EQ(!pThis->m_thread, true);
-      CHECK_NOTNULL(pThis->m_owner);
-      pThis->m_autoRemove = autoRemove;
-      pThis->m_thread = new std::thread(startHere, pThis);
-      pThis->m_owner->add_thread(pThis);
-      pThis->m_evReady->wait();
-      pThis->m_evStart->signal();
-      return pThis->m_thread != NULL;
+      WriteLocker guard(pThis->csThread_);
+      CHECK_EQ(!pThis->thread_, true);
+      CHECK_NOTNULL(pThis->owner_);
+      pThis->autoRemove_ = autoRemove;
+      pThis->thread_ = new std::thread(startHere, pThis);
+      pThis->owner_->add_thread(pThis);
+      pThis->evReady_->wait();
+      pThis->evStart_->signal();
+      return pThis->thread_ != NULL;
     }
 
     bool is_current_thread() {
-      ReadLocker guard(m_csThread);
-      return m_thread.load() ? (m_thread.load()->get_id() == std::this_thread::get_id()) : false;
+      ReadLocker guard(csThread_);
+      return thread_.load() ? (thread_.load()->get_id() == std::this_thread::get_id()) : false;
     }
 
     virtual void request_shutdown() {
-      m_shutdown_requested = true;
+      shutdown_requested_ = true;
     }
 
     virtual bool is_shutdown_requested() const {
-      return m_shutdown_requested.load();
+      return shutdown_requested_.load();
     }
 
     bool joinable() const {
-      ReadLocker guard(m_csThread);
-      if (m_thread) {
-        CHECK_EQ(!m_autoRemove, true);  // TODO: If we need this, join needs to be checked by searching the group or exit event.
-        return m_thread.load()->joinable();
+      ReadLocker guard(csThread_);
+      if (thread_) {
+        CHECK_EQ(!autoRemove_, true);  // TODO: If we need this, join needs to be checked by searching the group or exit event.
+        return thread_.load()->joinable();
       }
       return false;
     }
 
     void join() {
-#ifdef DEBUG
+#if defined(AWSDL_DEBUG_LOG_THREADS) && !defined(NDEBUG)
       const std::string name = getName();
-            GLOG(Grover::Util::GTrace::Sev::NOTI, "join() on %s\n", name.c_str());
+      LOG(INFO) << "join() on " << name << " ( " << thread_.load()->get_id() << " )";
 #endif
-      ReadLocker guard(m_csThread);
+      ReadLocker guard(csThread_);
       // should be careful calling (or any function externally) this when in
       // auto-remove mode
-      if (m_thread) {
-        CHECK_EQ(!m_autoRemove, true);  // TODO: If we need this, join needs to be checked by searching the group or exit event.
-        m_thread.load()->join();
+      if(thread_ && thread_.load()->get_id() != std::thread::id()) {
+        std::thread::id someId;
+
+        CHECK_EQ(!autoRemove_,
+                 true);  // TODO: If we need this, join needs to be checked by searching the group or exit event.
+        CHECK_NOTNULL(thread_.load());
+        if (thread_.load()->joinable()) {
+          thread_.load()->join();
+        } else {
+          LOG(WARNING) << "Thread " << name_ << " ( " << thread_.load()->get_id() << " ) not joinable";
+        }
       }
     }
 
     std::thread::id get_id() const {
-      ReadLocker guard(m_csThread);
-      return m_thread.load()->get_id();
+      ReadLocker guard(csThread_);
+      return thread_.load()->get_id();
     }
   };
 
- private:
-  mutable SharedMutex m;
-  std::unordered_set<ManagedThread::SharedPtr> m_threads;
+  mutable SharedMutex                 m_;
+  std::set<ManagedThread::SharedPtr>  threads_;
 
  public:
   ThreadGroup();
@@ -434,7 +446,7 @@ class ThreadGroup : public SharedObject<ThreadGroup>
 typedef ThreadGroup::ManagedThread ManagedThread;
 
 inline ThreadGroup::ThreadGroup()
-//  :   m_threads(std::less<ManagedThread::SharedPtr>())
+//  :   threads_(std::less<ManagedThread::SharedPtr>())
 {}
 
 inline ThreadGroup::~ThreadGroup() {}
@@ -444,8 +456,8 @@ inline ThreadGroup::~ThreadGroup() {}
 //
 inline bool ThreadGroup::is_this_thread_in() {
   std::thread::id id = std::this_thread::get_id();
-  ReadLocker guard(m);
-  for (auto it = m_threads.begin(), end = m_threads.end(); it != end; ++it) {
+  ReadLocker guard(m_);
+  for (auto it = threads_.begin(), end = threads_.end(); it != end; ++it) {
     ManagedThread::SharedPtr thrd = *it;
     if (thrd->get_id() == id)
       return true;
@@ -456,8 +468,8 @@ inline bool ThreadGroup::is_this_thread_in() {
 inline bool ThreadGroup::is_thread_in(ManagedThread::SharedPtr thrd) {
   if (thrd) {
     std::thread::id id = thrd->get_id();
-    ReadLocker guard(m);
-    for (auto it = m_threads.begin(), end = m_threads.end(); it != end; ++it) {
+    ReadLocker guard(m_);
+    for (auto it = threads_.begin(), end = threads_.end(); it != end; ++it) {
       ManagedThread::SharedPtr thrd = *it;
       if (thrd->get_id() == id)
         return true;
@@ -470,14 +482,14 @@ inline bool ThreadGroup::is_thread_in(ManagedThread::SharedPtr thrd) {
 
 inline void ThreadGroup::add_thread(ManagedThread::SharedPtr thrd) {
   if (thrd) {
-    WriteLocker guard(m);
-    m_threads.insert(thrd);
+    WriteLocker guard(m_);
+    threads_.insert(thrd);
   }
 }
 
 inline void ThreadGroup::remove_thread(ManagedThread::SharedPtr thrd) {
-  WriteLocker guard(m);
-  m_threads.erase(thrd);
+  WriteLocker guard(m_);
+  threads_.erase(thrd);
 }
 
 inline void ThreadGroup::join_all() {
@@ -486,9 +498,9 @@ inline void ThreadGroup::join_all() {
   ManagedThread::SharedPtr thrd;
   do {
     {
-      ReadLocker guard(m);
-      if (!m_threads.empty()) {
-        thrd = *m_threads.begin();
+      ReadLocker guard(m_);
+      if (!threads_.empty()) {
+        thrd = *threads_.begin();
       } else {
         thrd = ManagedThread::SharedPtr(NULL);
       }
@@ -497,23 +509,23 @@ inline void ThreadGroup::join_all() {
       if (thrd->joinable()) {
         thrd->join();
       }
-      WriteLocker guard(m);
-      m_threads.erase(thrd);
+      WriteLocker guard(m_);
+      threads_.erase(thrd);
     }
   } while (thrd);
 }
 
 inline void ThreadGroup::request_shutdown_all() {
-  ReadLocker guard(m);
-  for (auto it = m_threads.begin(), end = m_threads.end(); it != end; ++it) {
+  ReadLocker guard(m_);
+  for (auto it = threads_.begin(), end = threads_.end(); it != end; ++it) {
     ManagedThread::SharedPtr thrd = *it;
     thrd->request_shutdown();
   }
 }
 
 inline size_t ThreadGroup::size() const {
-  ReadLocker guard(m);
-  return m_threads.size();
+  ReadLocker guard(m_);
+  return threads_.size();
 }
 
 template<typename F, class T>
@@ -532,6 +544,6 @@ inline ManagedThread::SharedPtr ThreadGroup::create_thread(const char *threadNam
   return newThread;
 }
 
-} // namespace mf
+} // namespace awsdl
 
-#endif //_FASTMF_SYNC_H
+#endif // _AWSDL_SYNC_H

@@ -181,7 +181,7 @@ class condition_algorithm_8a
       m_.unlock();
     }
     bool operator !() const {
-      return this != NULL && &m_ != NULL;
+      return this == NULL || &m_ == NULL;
     }
     void unlock() {
       m_.unlock();

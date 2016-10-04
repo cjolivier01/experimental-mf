@@ -19,7 +19,7 @@ class SgdReadFilter : public BinaryRecordSourceFilter
 {
 
  public:
-  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test, perf::TimingInstrument *timing)
+  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test, awsdl::perf::TimingInstrument *timing)
   : BinaryRecordSourceFilter(mf.data_in_fly_ * 10, fr, timing)
     , mf_(mf)
     , iter_(1)
@@ -60,7 +60,7 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
  public:
   ParseFilter(size_t fly,
               mf::ObjectPool<std::vector<char> > &free_buffer_pool,
-              perf::TimingInstrument *timing)
+              awsdl::perf::TimingInstrument *timing)
     : mf::ObjectPool<mf::Block>(fly * 10)
       , tbb::filter(parallel)
       , free_buffer_pool_(free_buffer_pool)
@@ -93,7 +93,7 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
  private:
   char                                pad[CACHE_LINE_SIZE];
   mf::ObjectPool<std::vector<char> > &free_buffer_pool_;
-  perf::TimingInstrument *            timing_;
+  awsdl::perf::TimingInstrument *     timing_;
 };
 
 class SgdFilter : public mf::StatusStack,
@@ -101,7 +101,7 @@ class SgdFilter : public mf::StatusStack,
 {
 
  public:
-  SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool, perf::TimingInstrument *timing)
+  SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool, awsdl::perf::TimingInstrument *timing)
     : tbb::filter(parallel)
       , mf_(model)
       , free_block_pool_(free_block_pool)
@@ -111,7 +111,7 @@ class SgdFilter : public mf::StatusStack,
   }
 
   void *operator()(void *block) {
-    perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
+    awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[mf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     padding(mf_.dim_);
     const mf::Block *bk = (mf::Block *) block;
@@ -174,9 +174,9 @@ class SgdFilter : public mf::StatusStack,
   }
 
  private:
-  const MF&                   mf_;
-  mf::ObjectPool<mf::Block>&  free_block_pool_;
-  perf::TimingInstrument *    timing_;
+  const MF&                       mf_;
+  mf::ObjectPool<mf::Block>&      free_block_pool_;
+  awsdl::perf::TimingInstrument * timing_;
 };
 
 } // namespace mf

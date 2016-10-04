@@ -12,7 +12,7 @@ class SgldReadFilter : public BinaryRecordSourceFilter
 {
  public:
 
-  SgldReadFilter(DPMF &dpmf, dmlc::SeekStream *fr, const mf::Blocks& blocks_test, perf::TimingInstrument *timing)
+  SgldReadFilter(DPMF &dpmf, dmlc::SeekStream *fr, const mf::Blocks& blocks_test, awsdl::perf::TimingInstrument *timing)
     : BinaryRecordSourceFilter(dpmf.data_in_fly_ * 10, fr, timing)
       , dpmf_(dpmf)
       , blocks_test_(blocks_test)
@@ -38,7 +38,7 @@ class SgldFilter : public mf::StatusStack,
                    public tbb::filter
 {
  public:
-  SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool, perf::TimingInstrument *timing)
+  SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool, awsdl::perf::TimingInstrument *timing)
     : tbb::filter(parallel)
       , dpmf_(dpmf)
       , free_block_pool_(free_block_pool)
@@ -117,9 +117,9 @@ class SgldFilter : public mf::StatusStack,
   }
 
  private:
-  DPMF&                         dpmf_;
-  mf::ObjectPool<mf::Block>&    free_block_pool_;
-  perf::TimingInstrument *      timing_;
+  DPMF&                           dpmf_;
+  mf::ObjectPool<mf::Block>&      free_block_pool_;
+  awsdl::perf::TimingInstrument * timing_;
 };
 
 } // namespace mf
