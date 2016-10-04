@@ -154,78 +154,77 @@ static int run(AdaptRegMF& admf) {
 }
 
 int main(int argc, char** argv) {
-  char *train_data=NULL, *test_data=NULL, *result=NULL, *alg=NULL, *model=NULL;
-  int dim = 128, iter = 15, tau=0, nu=0, nv=0, fly=8, stride=2;
-  float eta = 2e-2, lambda = 5e-3, gam=1.0f, mineta=1e-13;
-  float epsilon=0.0f, hypera=1.0f, hyperb=100.0f, temp=1.0f;
-  float g_bias = 2.76f;
-  int noise_size = 2000000000;
-  int loss = 0;
-  int measure = 0;
-  float eta_reg = 2e-3f;
-  char* valid_data=NULL;
-  for(int i = 1; i < argc; i++) {
-    if(!strcmp(argv[i], "--train"))            train_data = argv[++i];
-    else if(!strcmp(argv[i], "--test"))        test_data = argv[++i];
-    else if(!strcmp(argv[i], "--valid"))       valid_data = argv[++i];
-    else if(!strcmp(argv[i], "--result"))      result = argv[++i];
-    else if(!strcmp(argv[i], "--model"))       model = argv[++i];
-    else if(!strcmp(argv[i], "--alg"))         alg = argv[++i];
-    else if(!strcmp(argv[i], "--dim"))         dim  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--iter"))        iter = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--nu"))          nu  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--nv"))          nv  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--fly"))         fly  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--stride"))      stride  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--eta"))         eta = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--lambda"))      lambda = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--gam"))         gam = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--bias"))        g_bias = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--mineta"))      mineta = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--epsilon"))     epsilon = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--tau"))         tau = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--hypera"))      hypera = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--hyperb"))      hyperb = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--temp"))        temp = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--noise-size"))  noise_size  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--eta-reg"))     eta_reg = atof(argv[++i]);
-    else if(!strcmp(argv[i], "--loss"))        loss  = atoi(argv[++i]);
-    else if(!strcmp(argv[i], "--measure"))     measure  = atoi(argv[++i]);
-    else {
-      printf("%s, unknown parameters, exit\n", argv[i]);
+  int rc = 0;
+  do {
+    char *train_data = NULL, *test_data = NULL, *result = NULL, *alg = NULL, *model = NULL;
+    int dim = 128, iter = 15, tau = 0, nu = 0, nv = 0, fly = 8, stride = 2;
+    float eta = 2e-2, lambda = 5e-3, gam = 1.0f, mineta = 1e-13;
+    float epsilon = 0.0f, hypera = 1.0f, hyperb = 100.0f, temp = 1.0f;
+    float g_bias = 2.76f;
+    int noise_size = 2000000000;
+    int loss = 0;
+    int measure = 0;
+    float eta_reg = 2e-3f;
+    char *valid_data = NULL;
+    for (int i = 1; i < argc; i++) {
+      if (!strcmp(argv[i], "--train")) train_data = argv[++i];
+      else if (!strcmp(argv[i], "--test")) test_data = argv[++i];
+      else if (!strcmp(argv[i], "--valid")) valid_data = argv[++i];
+      else if (!strcmp(argv[i], "--result")) result = argv[++i];
+      else if (!strcmp(argv[i], "--model")) model = argv[++i];
+      else if (!strcmp(argv[i], "--alg")) alg = argv[++i];
+      else if (!strcmp(argv[i], "--dim")) dim = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--iter")) iter = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--nu")) nu = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--nv")) nv = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--fly")) fly = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--stride")) stride = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--eta")) eta = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--lambda")) lambda = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--gam")) gam = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--bias")) g_bias = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--mineta")) mineta = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--epsilon")) epsilon = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--tau")) tau = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--hypera")) hypera = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--hyperb")) hyperb = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--temp")) temp = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--noise-size")) noise_size = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--eta-reg")) eta_reg = atof(argv[++i]);
+      else if (!strcmp(argv[i], "--loss")) loss = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--measure")) measure = atoi(argv[++i]);
+      else {
+        printf("%s, unknown parameters, exit\n", argv[i]);
+        return 1;
+      }
+    }
+    if (train_data == NULL || nu == 0 || nv == 0) {
+      printf("Note that train_data/#users/#items are not optional!\n");
+      show_help();
       return 1;
     }
-  }
-  if (train_data == NULL || nu == 0 || nv == 0) {
-    printf("Note that train_data/#users/#items are not optional!\n");
-    show_help();
-    return 1;
-  }
-  int rc = 0;
-  awsdl::perf::TimedScope timedScope;
-  if(!alg || !*alg || !strcmp(alg, "mf")) {
-    MF mf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
-              g_bias, nu, nv, fly, stride);
-    rc = run(mf);
-  }
-  else if (!strcmp(alg, "dpmf")) {
-    DPMF dpmf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
-                  g_bias, nu, nv, fly, stride, hypera, hyperb, epsilon, tau,
-                  noise_size, temp, mineta);
-    rc = run(dpmf);
-  }
-  else if (!strcmp(alg, "admf")) {
-    AdaptRegMF admf(train_data, test_data, valid_data, result, model, dim, iter, eta, gam,
-                        lambda, g_bias, nu, nv, fly, stride, loss, measure, eta_reg);
-    rc = run(admf);
-  }
-  else {
-    printf("Please select a solver: mf | dpmf | admf\n");
-    rc = EINVAL;
-  }
-  if(rc) {
-    fprintf(stderr, "Error: %s\n", strerror(rc));
-  }
+    awsdl::perf::TimedScope timedScope;
+    if (!alg || !*alg || !strcmp(alg, "mf")) {
+      MF mf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
+            g_bias, nu, nv, fly, stride);
+      rc = run(mf);
+    } else if (!strcmp(alg, "dpmf")) {
+      DPMF dpmf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
+                g_bias, nu, nv, fly, stride, hypera, hyperb, epsilon, tau,
+                noise_size, temp, mineta);
+      rc = run(dpmf);
+    } else if (!strcmp(alg, "admf")) {
+      AdaptRegMF admf(train_data, test_data, valid_data, result, model, dim, iter, eta, gam,
+                      lambda, g_bias, nu, nv, fly, stride, loss, measure, eta_reg);
+      rc = run(admf);
+    } else {
+      printf("Please select a solver: mf | dpmf | admf\n");
+      rc = EINVAL;
+    }
+    if (rc) {
+      fprintf(stderr, "Error: %s\n", strerror(rc));
+    }
+  } while(false);
 #ifdef USE_JEMALLOC
   malloc_stats_print(NULL, NULL, NULL);
 #endif

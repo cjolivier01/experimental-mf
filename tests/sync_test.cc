@@ -29,8 +29,7 @@ static void sync_test_bottom(STestThreadData *data)
 
 TEST(Sync, TestSyncObjectsMT)
 {
-  for(int pass = 0; pass < 50; ++pass)
-  {
+  for(int pass = 0; pass < 50; ++pass) {
     const size_t COUNT = randomRange(2, 1000);
 
     LOG(INFO) << "Run count: " << COUNT;
@@ -40,8 +39,7 @@ TEST(Sync, TestSyncObjectsMT)
 
     ThreadGroup threads;
 
-    for (std::size_t i = 0; i < COUNT; ++i)
-    {
+    for (std::size_t i = 0; i < COUNT; ++i) {
       std::string name = "sync_test ";
       name += std::to_string(pass);
       name += ":";
@@ -58,6 +56,5 @@ TEST(Sync, TestSyncObjectsMT)
     sync_test_bottom(data.get());
 
     threads.join_all();
-    //LOG(INFO) << "all runner threads have exited...";
   }
 }

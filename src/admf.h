@@ -58,6 +58,7 @@ class AdRegFilter : public mf::StatusStack,
   {}
 
   void *operator()(void *block) {
+    awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[admf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     mf::Block *bk = (mf::Block *) block;
     const float eta = admf_.eta_;

@@ -20,8 +20,8 @@ set(fastmf_INCLUDE_DIR_L "" )
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 # --[ dmlc-core
-add_subdirectory("dmlc-core")
-include_directories("dmlc-core/include")
+add_subdirectory(dmlc-core)
+include_directories(dmlc-core/include)
 
 # --[ MKL
 include(${PROJECT_SOURCE_DIR}/cmake/FindMKL.cmake)
