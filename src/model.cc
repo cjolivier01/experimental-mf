@@ -8,6 +8,16 @@ unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 std::default_random_engine generator(seed);
 std::normal_distribution<float> gaussian(0.0f, 1.0f);
 
+/**
+ *  __  __  ______
+ * |  \/  ||  ____|
+ * | \  / || |__
+ * | |\/| ||  __|
+ * | |  | || |
+ * |_|  |_||_|
+ *
+ */
+
 /* two chunks, read-only and frequent write, should be seperated.
    Align the address of write chunk to cache line */
 void MF::init() {
@@ -186,6 +196,17 @@ int MF::read_model() {
   }
   return rc;
 }
+
+/**
+ *  _____   _____   __  __  ______
+ * |  __ \ |  __ \ |  \/  ||  ____|
+ * | |  | || |__) || \  / || |__
+ * | |  | ||  ___/ | |\/| ||  __|
+ * | |__| || |     | |  | || |
+ * |_____/ |_|     |_|  |_||_|
+ *
+ *
+ */
 
 int DPMF::save_model(int round) {
   int rc = 0;
@@ -389,16 +410,30 @@ void DPMF::init() {
   assert(noise_size_ - max_ratings_ * (dim_ + 1) > 10000);
 }
 
-void DPMF::block_count(int *uc, int *vc, mf::Block *bk) {
+/**
+ * Counts the number of training accesses on both users and vids
+ * @param uc Array to user access count
+ * @param vc Array to vid access count
+ * @param bk Current Block item being processed
+ */
+void DPMF::block_count(int *users, int *vids, mf::Block *bk) {
   for (int i = 0; i < bk->user_size(); i++) {
     const mf::User &user = bk->user(i);
     const int uid = user.uid();
+    if(!uid) {
+      std::cerr << "uid = 0" << std::endl;
+    }
+    CHECK_LT(uid, nr_users_);
     const int size = user.record_size();
     for (int j = 0; j < size; j++) {
       const mf::User_Record &rec = user.record(j);
       const int vid = rec.vid();
-      uc[uid] += 1;
-      vc[vid] += 1;
+      if(!vid) {
+        std::cerr << "vid = 0" << std::endl;
+      }
+      CHECK_LT(vid, nr_videos_);
+      ++users[uid];
+      ++vids[vid];
       ++ntrain_;
     }
   }
@@ -410,7 +445,6 @@ int DPMF::sample_train_and_precompute_weight() {
     mf::dmlc_istream input(train_data_);
     if (input.is_open()) {
       uint32 isize;
-      mf::Block bk, *pbk;
       std::vector<char> buf;
       std::default_random_engine generator;
       std::uniform_real_distribution<float> distribution(0.0, 1.0);
@@ -419,11 +453,13 @@ int DPMF::sample_train_and_precompute_weight() {
       int *users = _users.get();
       std::unique_ptr<int> _vids(new int[nr_videos_]);
       int *vids = _vids.get();
-
+      ntrain_ = 0;
+      int pass = 0, train_sample_count = 0;
       while(!rc) {
         float ratio = distribution(generator);
-        if (ratio <= 1.0) {
-          pbk = train_sample_.add_block();
+        if (ratio <= 0.1 /*1.0*/ && train_sample_count < 1e6) {
+          mf::Block *pbk = train_sample_.add_block();
+          ++train_sample_count;
           if(!input.read((char *)&isize, sizeof(isize)).fail()) {
             buf.resize(isize);
             if(!input.read(buf.data(), isize).fail()) {
@@ -431,9 +467,11 @@ int DPMF::sample_train_and_precompute_weight() {
                 block_count(users, vids, pbk);
               } else {
                 rc = EINVAL;
+                break;
               }
             } else {
-              rc = EIO;
+              rc = errno ? errno : EIO;
+              break;
             }
           } else {
             rc = input.eof() ? 0 : EIO;
@@ -443,26 +481,42 @@ int DPMF::sample_train_and_precompute_weight() {
           if(!input.read((char *)&isize, sizeof(isize)).fail()) {
             buf.resize(isize);
             if(!input.read(buf.data(), isize).fail()) {
+              mf::Block bk;
               if(bk.ParseFromArray(buf.data(), isize)) {
                 block_count(users, vids, &bk);
               } else {
                 rc = EINVAL;
+                break;
               }
             } else {
-              rc = EIO;
+              rc = errno ? errno : EIO;
+              break;
             }
           } else {
             rc = input.eof() ? 0 : EIO;
             break;
           }
         }
+        ++pass;
       }
       if(!rc) {
         for (int i = 0; i < nr_users_; i++) {
-          ur_[i] = (float) ntrain_ / users[i];
+          // May not have zero-user
+          if(users[i]) {
+            CHECK_NE(users[i], 0);
+            ur_[i] = (float) ntrain_ / users[i];
+            //ur_[i] = ((float) users[i]) / ntrain_;
+            CHECK_EQ(mf::isFinite(ur_[i]), true);
+          }
         }
         for (int i = 0; i < nr_videos_; i++) {
-          vr_[i] = (float) ntrain_ / vids[i];
+          if(vids[i]) {
+            // May not have zero-vid
+            CHECK_NE(vids[i], 0);
+            vr_[i] = (float) ntrain_ / vids[i];
+            //vr_[i] = ((float) vids[i])/ntrain_;
+            CHECK_EQ(mf::isFinite(vr_[i]), true);
+          }
         }
       }
     } else {
@@ -539,6 +593,16 @@ void DPMF::set_learning_rate_cutoff(int round) {
 }
 
 
+/**
+ *               _                _    _____               __  __  ______
+ *     /\       | |              | |  |  __ \             |  \/  ||  ____|
+ *    /  \    __| |  __ _  _ __  | |_ | |__) | ___   __ _ | \  / || |__
+ *   / /\ \  / _` | / _` || '_ \ | __||  _  / / _ \ / _` || |\/| ||  __|
+ *  / ____ \| (_| || (_| || |_) || |_ | | \ \|  __/| (_| || |  | || |
+ * /_/    \_\\__,_| \__,_|| .__/  \__||_|  \_\\___| \__, ||_|  |_||_|
+ *                        | |                        __/ |
+ *                        |_|                       |___/
+ */
 void AdaptRegMF::init1() {
   init();
 
@@ -565,6 +629,7 @@ void AdaptRegMF::init1() {
       phi_old_[i][j] = phi_[i][j];
     }
   }
+  // TODO: Do with two loops, for Christ's sake (users, then vids)
 #pragma omp parallel for
   for (int i = 0; i < nr_users_ + nr_videos_; i++) {
     bu_old_[i] = user_array_[i];

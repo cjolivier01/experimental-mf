@@ -90,8 +90,13 @@ class AdRegFilter : public mf::StatusStack,
         admf_.bv_old_[vid] = admf_.video_array_[vid];
         admf_.user_array_[uid] = (1.0f - eta * admf_.lam_bu_) * admf_.user_array_[uid] + error;
         admf_.video_array_[vid] = (1.0f - eta * admf_.lam_bv_) * admf_.video_array_[vid] + error;
+
         DCHECK_EQ(isFinite(admf_.user_array_[uid]), true);
         DCHECK_EQ(isFinite(admf_.video_array_[vid]), true);
+
+        DCHECK_LT(admf_.user_array_[uid],  100.0f);
+        DCHECK_LT(admf_.video_array_[vid], 100.0f);
+
       }
       const size_t ii = rand() % admf_.recsv_.size();
       admf_.updateReg(admf_.recsv_[ii].u_, admf_.recsv_[ii].v_, admf_.recsv_[ii].r_);

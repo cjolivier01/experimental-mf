@@ -164,6 +164,13 @@ class SgdFilter : public mf::StatusStack,
         cblas_scopy(mf_.dim_, q, 1, phi, 1);
         mf_.user_array_[uid]  = lameta * mf_.user_array_[uid]  + error;
         mf_.video_array_[vid] = lameta * mf_.video_array_[vid] + error;
+
+        DCHECK_EQ(isFinite(mf_.user_array_[uid]), true);
+        DCHECK_EQ(isFinite(mf_.video_array_[vid]), true);
+
+        DCHECK_LT(mf_.user_array_[uid],  100.0f);
+        DCHECK_LT(mf_.video_array_[vid], 100.0f);
+
       }
     }
     // Return block to queue

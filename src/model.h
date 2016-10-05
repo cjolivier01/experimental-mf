@@ -6,6 +6,16 @@
 namespace mf
 {
 
+/**
+ *  __  __  ______
+ * |  \/  ||  ____|
+ * | \  / || |__
+ * | |\/| ||  __|
+ * | |  | || |
+ * |_|  |_||_|
+ *
+ */
+
 class MF
 {
  public:
@@ -25,8 +35,8 @@ class MF
       , learning_rate_decay_(config->learning_rate_decay())
       , lambda_(config->regularizer())
       , learning_rate0_(config->learning_rate())
-      , nr_users_(config->nu())
-      , nr_videos_(config->nv())
+      , nr_users_(config->nu() + 1)   // extra item to accommodate whether data set has a zero id user
+      , nr_videos_(config->nv() + 1)  // extra item to accommodate whether data set has a zero id vid
       , data_in_fly_(config->fly())
       , prefetch_stride_(config->prefetch_stride()) {}
 
@@ -59,6 +69,16 @@ class MF
   const int nr_users_, nr_videos_, data_in_fly_, prefetch_stride_;//48B
 };
 
+/**
+ *  _____   _____   __  __  ______
+ * |  __ \ |  __ \ |  \/  ||  ____|
+ * | |  | || |__) || \  / || |__
+ * | |  | ||  ___/ | |\/| ||  __|
+ * | |__| || |     | |  | || |
+ * |_____/ |_|     |_|  |_||_|
+ *
+ *
+ */
 class DPMF : public MF
 {
  public:
@@ -130,6 +150,16 @@ class DPMF : public MF
   std::atomic<uint64> gcount;
 };
 
+/**
+ *               _                _    _____               __  __  ______
+ *     /\       | |              | |  |  __ \             |  \/  ||  ____|
+ *    /  \    __| |  __ _  _ __  | |_ | |__) | ___   __ _ | \  / || |__
+ *   / /\ \  / _` | / _` || '_ \ | __||  _  / / _ \ / _` || |\/| ||  __|
+ *  / ____ \| (_| || (_| || |_) || |_ | | \ \|  __/| (_| || |  | || |
+ * /_/    \_\\__,_| \__,_|| .__/  \__||_|  \_\\___| \__, ||_|  |_||_|
+ *                        | |                        __/ |
+ *                        |_|                       |___/
+ */
 class AdaptRegMF : public MF
 {
  public:
@@ -153,6 +183,9 @@ class AdaptRegMF : public MF
         free_aligned_alloc(phi_old_, nr_videos_);
       }
       free(theta_old_);
+    }
+    if(bu_old_) {
+      free(bu_old_);
     }
   }
 
