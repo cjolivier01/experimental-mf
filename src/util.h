@@ -238,6 +238,43 @@ inline bool isNan(const float &f) {
   return f != f;
 }
 
+/**
+ * Wrap simple R/W dmlc stream creation pattern to programmatically
+ * match ifstream/ofstream creation pattern
+ */
+template<typename StreamType, bool WRITING>
+class DmlcStream : public StreamType {
+  std::unique_ptr<dmlc::Stream> dmlc_stream;
+ public:
+  DmlcStream(const std::string& name)
+    : StreamType(NULL, mf::STREAM_BUFFER_SIZE) {
+    if(!WRITING) {
+      dmlc_stream.reset(dmlc::SeekStream::CreateForRead(name.c_str()));
+    } else {
+      dmlc_stream.reset(dmlc::SeekStream::Create(name.c_str(), "wb", true));
+    }
+    this->set_stream(dmlc_stream.get());
+  }
+  inline bool is_open() const {
+    return !!dmlc_stream.get();
+  }
+  virtual ~DmlcStream() {
+    this->set_stream(NULL);
+  }
+};
+
+template<typename StreamType>
+class DmlcOutStream : public DmlcStream<StreamType, true> {
+ public:
+  DmlcOutStream(const std::string& name) : DmlcStream<StreamType, true>(name) {}
+  ~DmlcOutStream() { this->flush(); }
+};
+
+
+typedef DmlcStream<dmlc::istream, false>  dmlc_istream;
+typedef DmlcOutStream<dmlc::ostream>      dmlc_ostream;
+
+
 } // namespace mf
 
 #endif //_FASTMF_UTIL_H

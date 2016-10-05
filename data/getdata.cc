@@ -7,108 +7,25 @@
 #include <algorithm>
 #include <unordered_map>
 #include <unistd.h>
+#include <dmlc/io.h>
 #include "util.h"
+#include "random_merger.h"
 #include "blocks.pb.h"
-
-#define OFSTREAM_T   std::ofstream
 
 #if 1 && !defined(NDEBUG)
 #define DEFAULT_MAX_RECORDS       ((uint64_t)(1e6))
 #else
-#define DEFAULT_MAX_RECORDS       ((uint64_t)(10e6))
+#define DEFAULT_MAX_RECORDS       ((uint64_t)(1e7))
 #endif
+
+typedef mf::dmlc_istream  IFSTREAM_T;
+typedef mf::dmlc_ostream  OFSTREAM_T;
 
 typedef std::unordered_map<int, std::vector<std::pair<int, float>>> Dict;
 typedef Dict::const_iterator DictIt;
 typedef std::tuple<int, int, float> Tuple;
 
 static int block_size = 1000;
-
-template <class Record>
-class RandomMerger
-{
- public:
-  static void seedRandom() {
-    std::srand(time(NULL) * getpid());
-  }
-
-  static int random_range(const int floor, const int ceiling) {
-    const int range = ceiling - floor;
-    const int rnd = floor + int((range * rand()) / (RAND_MAX + 1.0));
-    return rnd;
-  }
-
-  typedef int (*get_record_t)(std::ifstream& input, Record& buffer);
-
-  template<typename OutStream>
-  static int random_merge(std::vector<std::unique_ptr<std::ifstream>> &files,
-                          OutStream &outFile,
-                          get_record_t get_next,
-                          const char *endOfRecord = "\n"
-                          ) {
-    if(files.empty() && !get_next) {
-      return EINVAL;
-    }
-    int rc = 0;
-    Record record;
-    while(!rc && !files.empty()) {
-      const int fileNo = files.size() > 1 ? random_range(0, files.size() - 1) : 0;
-      std::ifstream& input = *files[fileNo];
-      rc = get_next(input, record);
-      if(!rc) {
-        if (!record.empty()) {
-          outFile << record;
-          if(endOfRecord) {
-            outFile << endOfRecord;
-          }
-        }
-        if (input.eof()) {
-          files.erase(files.begin() + fileNo);
-        }
-      }
-    }
-    return rc;
-  }
-
-  // Randomly merge files (It is assumed that the filed have already been randomly shuffled)
-  static int random_merge(const std::vector<std::string> &files,
-                          const std::string &outFile,
-                          get_record_t get_next,
-                          const char *endOfRecord = "\n") {
-    int rc = 0;
-    // Open the files
-    std::vector<std::unique_ptr<std::ifstream>> streams;
-    for(const std::string& fileName : files) {
-      if(!fileName.empty()) {
-        streams.push_back(std::unique_ptr<std::ifstream>(new std::ifstream(fileName)));
-        if((*streams.rbegin())->is_open()) {
-        } else {
-          rc = errno;
-        }
-      } else {
-        rc = EINVAL;
-      }
-      if(rc) {
-        break;
-      }
-    }
-    if(!rc) {
-      if (!outFile.empty()) {
-        OFSTREAM_T outStream(outFile);
-        if (outStream.is_open()) {
-          // Randomly merge the streams
-          return random_merge(streams, outStream, get_next);
-        } else {
-          rc = errno;
-        }
-      } else {
-        rc = EINVAL;
-      }
-    }
-    return rc;
-  }
- private:
-};
 
 static std::vector<std::string>& tokenize(const std::string& str,
                                           const std::string& delimiters,
@@ -124,7 +41,7 @@ static std::vector<std::string>& tokenize(const std::string& str,
   return tokens;
 }
 
-static int read_raw(std::ifstream& ins, std::vector<Tuple>& data, size_t maxRecords) {
+static int read_raw(IFSTREAM_T& ins, std::vector<Tuple>& data, size_t maxRecords) {
   std::string line;
   while(std::getline(ins, line) && !line.empty() && line[0] == '%')
     ;
@@ -152,24 +69,24 @@ static int read_raw(std::ifstream& ins, std::vector<Tuple>& data, size_t maxReco
 }
 
 static int read_raw(const char* file, std::vector<Tuple>& data, const size_t maxRecords) {
-  std::ifstream ins(file);
+  IFSTREAM_T ins(file);
   if(!ins.is_open())  {
-    fprintf(stderr, "Unable to open file for read: %s - %s\n", file, strerror(errno));
+    LOG(ERROR) << "Unable to open file for read: " << file << " - " << strerror(errno) << std::endl;
     return errno;
   }
   return read_raw(ins, data, maxRecords);
 }
 
-static void write_by_dict(Dict& du, FILE* fp) {
+static void write_by_dict(Dict& du, OFSTREAM_T& output) {
   for(DictIt it(du.begin()); it!=du.end(); it++) {
     int u = it->first;
-    fprintf(fp, "%d:\n", u);
+    output << u << ":\n";
     auto eles = it->second;
     for(std::vector<std::pair<int, float>>::iterator vit = eles.begin(), e = eles.end();
         vit != e; ++vit) {
       const int   v = vit->first;
       const float r = vit->second;
-      fprintf(fp, "%d,%f\n", v, r);
+      output << v << "," << r << "\n";
     }
   }
 }
@@ -182,9 +99,8 @@ static int userwise(const char* write,
   int rc = 0;
   if(!data.empty() && itemsPerSplit && numRatingMatrixSplits) {
     size_t i;
-    FILE* fp = fopen(write, "w");
-    if (fp) {
-
+    OFSTREAM_T output(write);
+    if (output.is_open()) {
       for (i = 0; i < numRatingMatrixSplits - 1; ++i) {
         Dict du;
         const size_t count = i * itemsPerSplit + itemsPerSplit;
@@ -196,7 +112,7 @@ static int userwise(const char* write,
           du[u].push_back(std::make_pair(v, r));
         }
         // write to output file
-        write_by_dict(du, fp);
+        write_by_dict(du, output);
       }
       // make the last one hold the remainder
       Dict du;
@@ -210,14 +126,13 @@ static int userwise(const char* write,
         du[u].push_back(std::make_pair(v, r));
       }
       // write to output file
-      write_by_dict(du, fp);
-      fclose(fp);
+      write_by_dict(du, output);
     } else {
       rc = errno;
-      fprintf(stderr, "Unable to open file for write: %s - %s\n", write, strerror(rc));
+      LOG(ERROR) << "Unable to open file for write: " << write << " - " << strerror(rc) << std::endl;
     }
   } else {
-    fprintf(stderr, "Invalid argument(s)\n");
+    LOG(ERROR) << "Invalid argument(s)\n";
     rc = EINVAL;
   }
   return rc;
@@ -245,86 +160,102 @@ struct RangeConverter
     return true;
   }
 };
-
 static int get_message(const char* read, const char* write, const RangeConverter& ranges)
 {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
-  std::ifstream ins(read);
-  if(!ins.is_open()) {
-    fprintf(stderr, "Unable to open file for read: %s - %s\n", read, strerror(errno));
-    return errno;
-  }
-  std::string buf;
-  FILE* f_w = fopen(write, "wb");
-  if(!f_w)  {
-    fprintf(stderr, "Unable to open file for write: %s - %s\n", write, strerror(errno));
-    return errno;
-  }
   int rc = 0;
-  size_t ii=0;
-  ::google::protobuf::int32 vid;
-  mf::Block block;
-  mf::User* user = NULL;
-  mf::User_Record* record = NULL;
-  std::string uncompressed_buffer;
-  while (std::getline(ins, buf)) {
-    const size_t len = buf.length();
-    if(buf[len-1]==':') {
-      if(ii % block_size == 0) {
-        if(block.user_size() > 0) {
-          if(block.SerializeToString(&uncompressed_buffer)) {
-            const uint32 uncompressed_size = uncompressed_buffer.size();
-            fwrite(&uncompressed_size, 1, sizeof(uncompressed_size), f_w);
-            fwrite(uncompressed_buffer.c_str(), 1, uncompressed_size, f_w);
-          } else {
-            fprintf(stderr, "Error serializing block to stream\n");
-            rc = EINVAL;
+  if(read && *read && write && *write) {
+    mf::dmlc_istream ins(read);
+    if (ins.is_open()) {
+      std::string buf;
+      mf::dmlc_ostream output(write);
+      if (output.is_open()) {
+        size_t ii = 0;
+        ::google::protobuf::int32 vid;
+        mf::Block block;
+        mf::User *user = NULL;
+        mf::User_Record *record = NULL;
+        std::string uncompressed_buffer;
+        while (std::getline(ins, buf)) {
+          const size_t len = buf.length();
+          if (buf[len - 1] == ':') {
+            if (ii % block_size == 0) {
+              if (block.user_size() > 0) {
+                if (block.SerializeToString(&uncompressed_buffer)) {
+                  const uint32 uncompressed_size = uncompressed_buffer.size();
+                  if(!output.write((const char *)&uncompressed_size, sizeof(uncompressed_size)).fail()) {
+                    if(output.write(uncompressed_buffer.c_str(), uncompressed_buffer.size()).fail())
+                    {
+                      rc = errno;
+                      break;
+                    }
+                  } else {
+                    rc = errno;
+                    break;
+                  }
+                } else {
+                  LOG(ERROR) << "Error serializing block to stream";
+                  rc = EINVAL;
+                  break;
+                }
+              }
+              block.Clear();
+              user = block.add_user();
+            } else {
+              user = block.add_user();
+            }
+            ++ii;
+            user->set_uid(stoi(buf));
+            continue;
+          }
+          if (!user) {
+            LOG(ERROR) << "Found data before user record: \"" << buf.c_str() << "\"";
             break;
           }
-        }
-        block.Clear();
-        user = block.add_user();
-      }
-      else {
-        user = block.add_user();
-      }
-      ++ii;
-      user->set_uid(stoi(buf));
-      continue;
-    }
-    if(!user) {
-      fprintf(stderr, "Found data before user record: \"%s\"\n", buf.c_str());
-      break;
-    }
-    record = user->add_record();
-    float rating;
-    if(sscanf(buf.c_str(), "%d,%f", &vid, &rating) != 2) {
-      fprintf(stderr, "Bad input line: %s\n", buf.c_str());
-      rc = 1;
-      break;
-    }
-    record->set_vid(vid);
+          record = user->add_record();
+          float rating;
+          if (sscanf(buf.c_str(), "%d,%f", &vid, &rating) != 2) {
+            LOG(ERROR) << "Bad input line: " << buf.c_str() << std::endl;
+            rc = 1;
+            break;
+          }
+          record->set_vid(vid);
 
-    float scaledRating;
-    if(!ranges.scale(rating, scaledRating)) {
-      LOG(WARNING) << "Out of range input score: " << rating;
-      continue;
+          float scaledRating;
+          if (!ranges.scale(rating, scaledRating)) {
+            LOG(WARNING) << "Out of range input score: " << rating << " (ignoring)";
+            continue;
+          }
+          CHECK_GE(scaledRating, ranges.to_.low_);
+          CHECK_LE(scaledRating, ranges.to_.hi_);
+          record->set_rating(scaledRating);
+        }
+        if (!rc) {
+          block.SerializeToString(&uncompressed_buffer);
+          const uint32 uncompressed_size = uncompressed_buffer.size();
+          if(!output.write((const char *)&uncompressed_size, sizeof(uncompressed_size)).fail()) {
+            if(output.write(uncompressed_buffer.c_str(), uncompressed_buffer.size()).fail())
+            {
+              rc = errno;
+            }
+          } else {
+            rc = errno;
+          }
+        } else {
+          unlink(write);
+        }
+        google::protobuf::ShutdownProtobufLibrary();
+      } else {
+        rc = EIO;
+      }
+    } else {
+      LOG(ERROR) << "Unable to open file for read: " << read << " - " << strerror(errno);
+      rc = errno;
     }
-    CHECK_GE(scaledRating, ranges.to_.low_);
-    CHECK_LE(scaledRating, ranges.to_.hi_);
-    record->set_rating(scaledRating);
-  }
-  if(!rc) {
-    block.SerializeToString(&uncompressed_buffer);
-    const uint32 uncompressed_size = uncompressed_buffer.size();
-    fwrite(&uncompressed_size, 1, sizeof(uncompressed_size), f_w);
-    fwrite(uncompressed_buffer.c_str(), 1, uncompressed_size, f_w);
-    fclose(f_w);
   } else {
-    fclose(f_w);
-    unlink(write);
+    rc = EINVAL;
+    LOG(ERROR) << "get_message: Missing or invalid file names";
   }
-  google::protobuf::ShutdownProtobufLibrary();
   return rc;
 }
 
@@ -359,11 +290,11 @@ static int raw_to_protobuf(const char *fileIn,
                            const size_t maxRecords,
                            const RangeConverter& ranges)
 {
-  RandomMerger<std::string>::seedRandom();
+  RandomMerger<std::string, IFSTREAM_T, OFSTREAM_T>::seedRandom();
   int rc = 0;
-  std::ifstream inFile(fileIn);
+  IFSTREAM_T inFile(fileIn);
   if(!inFile.is_open()) {
-    fprintf(stderr, "Unable to open input file: %s - %s\n", fileIn, strerror(errno));
+    LOG(ERROR) << "Unable to open input file: " << fileIn << " - " << strerror(errno);
     return errno;
   }
   uint64_t totalCount = 0;
@@ -396,12 +327,14 @@ static int raw_to_protobuf(const char *fileIn,
       files.push_back(ff->getName());
     }
     TempFile userwiseStage("userwise");
-    rc = RandomMerger<std::string>::random_merge(files, userwiseStage.getName().c_str(),
-                                                 [](std::ifstream& input, std::string& buffer) {
-                                                    buffer.clear();
-                                                    std::getline(input, buffer);
-                                                    return 0;
-                                                  }
+    rc = RandomMerger<std::string, IFSTREAM_T, OFSTREAM_T>::random_merge(
+      files,
+      userwiseStage.getName().c_str(),
+      [](IFSTREAM_T& input, std::string& buffer) {
+        buffer.clear();
+        std::getline(input, buffer);
+        return 0;
+      }
     );
     if(!rc) {
       rc = get_message(userwiseStage.getName().c_str(), fileOut, ranges);
@@ -411,14 +344,16 @@ static int raw_to_protobuf(const char *fileIn,
 }
 
 static void hint() {
-  fprintf(stderr, "-i             [input_file_name]\n");
-  fprintf(stderr, "-o             [output_file_name]\n");
-  fprintf(stderr, "--stage-size   [number of records to split up between stages (for huge files). Default: %" PRIu64 "\n", DEFAULT_MAX_RECORDS);
-  fprintf(stderr, "--method       [userwise/raw2proto/protobuf]\n");
-  fprintf(stderr, "--split        [number_of_splits_for_rating_matrix]\thints: 1~10 splits are recommended\n");
-  fprintf(stderr, "--size         [number_of_users_in_each_block]\thints: 1 fread reads 1 block each time\n");
-  fprintf(stderr, "--input-range  [input score inclusive range. Default: 0,5 \n");
-  fprintf(stderr, "--output-range [output score inclusive range. low,high. Default: 0,5 \n");
+  std::cerr << "-i             [input_file_name]\n";
+  std::cerr << "-o             [output_file_name]\n";
+  std::cerr << "--stage-size   [number of records to split up between stages (for huge files)."
+            << " Default: " << DEFAULT_MAX_RECORDS << std::endl;
+  std::cerr << "--method       [userwise/raw2proto/protobuf]\n";
+  std::cerr << "--split        [number_of_splits_for_rating_matrix]\thints: 1~10 splits are recommended\n";
+  std::cerr << "--size         [number_of_users_in_each_block]\thints: 1 fread reads 1 block each time\n";
+  std::cerr << "--input-range  [input score inclusive range. Default: 0,5 \n";
+  std::cerr << "--output-range [output score inclusive range. low,high. Default: 0,5 \n";
+  std::cerr << std::flush;
 }
 
 int main(int argc, char** argv) {
@@ -494,7 +429,7 @@ int main(int argc, char** argv) {
       }
     }
     else {
-      fprintf(stderr, "Unknown parameter: \"%s\"\n\n", option);
+      std::cerr << "Unknown parameter: \"" << option << "\"" << std::endl;
       hint();
       rc = 1;
       break;
@@ -502,7 +437,7 @@ int main(int argc, char** argv) {
   }
   if(!rc) {
     if (read == NULL || write == NULL || method == NULL) {
-      fprintf(stderr, "Please indicate at least the input, output and method.\n\n");
+      std::cerr << "Please indicate at least the input, output and method." << std::endl << std::endl;
       hint();
       rc = 1;
     } else {
