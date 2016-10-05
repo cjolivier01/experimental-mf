@@ -1,5 +1,10 @@
 package mf;
 
+//
+// Training
+//
+
+// Training data
 message User  {
   required int32 uid = 1;
   message Record  {
@@ -16,3 +21,70 @@ message Block {
 message Blocks  {
   repeated Block block = 1;
 }
+
+message Status {
+  required int32   code = 1;
+  optional string  message = 2;
+}
+
+message TrainConfig {
+  required string train  = 1;                   //xxx       : xxx is the file name of the binary training data.\n");
+  required int32  nu     = 2;                   //int       : number of users.\n");
+  required int32  nv     = 3;                   //int       : number of items.\n");
+  required string test   = 4;                   //xxx       : xxx is the file name of the binary test data.\n");
+  optional string valid  = 5;                   //[xxx]     : xxx is the file name of the binary validation data.\n");
+  optional string result = 6;                   //[xxx]     : save your model in name xxx.\n");
+  optional string model  = 7;                   //[xxx]     : read your model in name xxx.\n");
+  optional string alg    = 8;                   //[xxx]     : xxx can be {mf, dpmf, admf}.\n");
+  required int32  dim    = 9;                   //[int]     : low rank of the model.\n");
+  required int32  iterations = 10;              //[int]     : number of iterations.\n");
+  optional int32  fly    = 11;                  //[int]     : number of threads.\n");
+  optional int32  prefetch_stride = 12;         //[int]     : prefetch strides.\n");
+  optional float  learning_rate = 13;           //[float]   : (eta) learning rate.\n");
+  optional float  regularizer = 14;             //[float]   : (lambda) regularizer.\n");
+  optional float  learning_rate_decay = 15;     //[float]   : (gam) decay of learning rate.\n");
+  optional float  global_bias = 16;             //[float]   : (bias) global bias (important for accuracy).\n");
+  optional float  min_learning_rate = 17;       //[float]   : (mineta) minimum learning rate (sometimes used in SGLD).\n");
+  optional float  dfp_sensitivity = 18;         //[float]   : (epsilon) sensitivity of differentially privacy.\n");
+  optional int32  max_ratings = 19;             //[int]     : (tau) maximum of ratings among all the users (usually after trimming your data).\n");
+  optional float  hypera = 20;
+  optional float  hyperb = 21;
+  optional float  sgld_temperature = 22;        //[float]   : (temp) temperature in SGLD (can accelerate the convergence).\n");
+  optional int32  noise_size = 23;              //[int]     : the Gaussian numbers lookup table.\n");
+  optional float  learning_rate_reg = 24;       //[float]   : the learning rate for estimating regularization parameters.\n");
+  optional int32  loss = 25;                    //[int]     : the loss type can be {least square, 0-1 logistic regression}.\n");
+  optional bool   measure = 26;                 //[int]     : support RMSE.\n");
+}
+
+// Model
+message Model {
+  required string name = 1;
+}
+
+// Training request
+message TrainRequest {
+  required string       train_uid = 1; // unique identifier for this training
+  required TrainConfig  config = 2;
+}
+
+// Training result
+message TrainResult {
+  required string       train_uid = 1; // unique identifier for this training
+  required TrainConfig  config = 3;
+  required Status       status = 2;
+}
+
+//
+// Inference
+//
+
+message InferenceRequest {
+  required Model model = 1;  // unique identifier for the pre-trained model
+
+}
+
+message InferenceResult {
+  repeated int32   id = 1;
+
+}
+

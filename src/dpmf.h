@@ -49,7 +49,7 @@ class SgldFilter : public mf::StatusStack,
     float q[dpmf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     float p[dpmf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     mf::Block *bk = (mf::Block *) block;
-    const float eta = dpmf_.eta_;
+    const float eta = dpmf_.learning_rate_;
     const float scal = eta * dpmf_.ntrain_ * dpmf_.bound_ * dpmf_.lambda_r_;
     CHECK_LT(scal, 100.0); // should be a small number, like 0.01
     for (int i = 0; i < bk->user_size(); i++) {
@@ -77,14 +77,14 @@ class SgldFilter : public mf::StatusStack,
 
         const uint64 uc = gc - dpmf_.gcountu[uid];
         dpmf_.gcountu[uid] = gc;
-        cblas_saxpy(dpmf_.dim_, (float)sqrt(dpmf_.temp_ * eta * uc), dpmf_.noise_ + thetaind, 1, dpmf_.theta_[uid], 1);
-        cblas_saxpy(dpmf_.dim_, (float)sqrt(dpmf_.temp_ * eta * vc), dpmf_.noise_ + phiind, 1, dpmf_.phi_[vid], 1);
-        dpmf_.user_array_[uid] += sqrt(dpmf_.temp_ * eta * uc) * dpmf_.noise_[thetaind + dpmf_.dim_];
-        dpmf_.video_array_[vid] += sqrt(dpmf_.temp_ * eta * vc) * dpmf_.noise_[phiind + dpmf_.dim_];
+        cblas_saxpy(dpmf_.dim_, (float)sqrt(dpmf_.sgld_temperature_ * eta * uc), dpmf_.noise_ + thetaind, 1, dpmf_.theta_[uid], 1);
+        cblas_saxpy(dpmf_.dim_, (float)sqrt(dpmf_.sgld_temperature_ * eta * vc), dpmf_.noise_ + phiind, 1, dpmf_.phi_[vid], 1);
+        dpmf_.user_array_[uid] += sqrt(dpmf_.sgld_temperature_ * eta * uc) * dpmf_.noise_[thetaind + dpmf_.dim_];
+        dpmf_.video_array_[vid] += sqrt(dpmf_.sgld_temperature_ * eta * vc) * dpmf_.noise_[phiind + dpmf_.dim_];
 
         float error = rating
                 - cblas_sdot(dpmf_.dim_, dpmf_.theta_[uid], 1, dpmf_.phi_[vid], 1)
-                - dpmf_.user_array_[uid] - dpmf_.video_array_[vid] - dpmf_.gb_;
+                - dpmf_.user_array_[uid] - dpmf_.video_array_[vid] - dpmf_.global_bias_;
 
         DCHECK_EQ(isFinite(error), true);
 

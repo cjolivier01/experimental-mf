@@ -49,6 +49,48 @@ namespace mf
 
 constexpr size_t STREAM_BUFFER_SIZE = (1 << 20);
 
+/**
+ * Wrap simple R/W dmlc stream creation pattern to programmatically
+ * match ifstream/ofstream creation pattern
+ */
+template<typename StreamType, bool WRITING>
+class DmlcStream : public StreamType
+{
+  std::unique_ptr<dmlc::Stream> dmlc_stream;
+ public:
+  DmlcStream(const std::string &name)
+    : StreamType(NULL, mf::STREAM_BUFFER_SIZE) {
+    if (!WRITING) {
+      dmlc_stream.reset(dmlc::SeekStream::CreateForRead(name.c_str()));
+    } else {
+      dmlc_stream.reset(dmlc::SeekStream::Create(name.c_str(), "wb", true));
+    }
+    this->set_stream(dmlc_stream.get());
+  }
+
+  inline bool is_open() const {
+    return !!dmlc_stream.get();
+  }
+
+  virtual ~DmlcStream() {
+    this->set_stream(NULL);
+  }
+};
+
+template<typename StreamType>
+class DmlcOutStream : public DmlcStream<StreamType, true>
+{
+ public:
+  DmlcOutStream(const std::string &name)
+    : DmlcStream<StreamType, true>(name) {}
+
+  ~DmlcOutStream() { this->flush(); }
+};
+
+
+typedef DmlcStream<dmlc::istream, false> dmlc_istream;
+typedef DmlcOutStream<dmlc::ostream> dmlc_ostream;
+
 typedef struct
 {
   int u_, v_;
@@ -94,18 +136,17 @@ inline void free_aligned_alloc(float **u, int nu) {
   mkl_free(u[k * nn]);
 }
 
-inline int plain_read(const char *data, mf::Blocks &blocks) {
+inline int plain_read(const std::string &data, mf::Blocks &blocks) {
   int rc = 0;
-  if(data) {
-    std::unique_ptr<dmlc::SeekStream> stream(dmlc::SeekStream::CreateForRead(data));
-    if (stream.get()) {
-      dmlc::istream input(stream.get(), 1 << 20);
+  if (!data.empty()) {
+    mf::dmlc_istream input(data);
+    if (input.is_open()) {
       std::vector<char> buf;
       uint32 isize;
       mf::Block *bk;
-      while(!input.read((char *)&isize, sizeof(isize)).fail()) {
+      while (!input.read((char *) &isize, sizeof(isize)).fail()) {
         buf.resize(isize);
-        if(!input.read(buf.data(), isize).fail()) {
+        if (!input.read(buf.data(), isize).fail()) {
           bk = blocks.add_block();
           if (!bk->ParseFromArray(buf.data(), isize)) {
             rc = EINVAL;
@@ -117,7 +158,7 @@ inline int plain_read(const char *data, mf::Blocks &blocks) {
         }
       }
     } else {
-      rc = errno;
+      rc = errno ? errno : EIO;
     }
   } else {
     rc = EINVAL;
@@ -167,7 +208,7 @@ inline float sample_normal() {
     s = x * x + y * y;
   } while (s >= 1.0 || s == 0.0);
 
-  return (float)(x * sqrt(-2.0f * log(s) / s));
+  return (float) (x * sqrt(-2.0f * log(s) / s));
 }
 
 inline float sample_gamma(float alpha, float beta) {
@@ -176,11 +217,11 @@ inline float sample_gamma(float alpha, float beta) {
     do {
       u = next_float();
     } while (u == 0.0);
-    return (float)(sample_gamma(alpha + 1.0f, beta) * pow(u, 1.0f / alpha));
+    return (float) (sample_gamma(alpha + 1.0f, beta) * pow(u, 1.0f / alpha));
   } else {
     float d, c, x, v, u;
     d = alpha - 1.0f / 3.0f;
-    c = 1.0f / (float)sqrt(9.0f * d);
+    c = 1.0f / (float) sqrt(9.0f * d);
     do {
       do {
         x = sample_normal();
@@ -220,7 +261,7 @@ inline int padding(int dim) {
  * @return true if the value is reasonable
  */
 inline bool isFinite(const float &f) {
-  if(fabs(f) > 1e10) {
+  if (fabs(f) > 1e10) {
     return false;
   }
   return std::isfinite(f);
@@ -237,43 +278,6 @@ inline bool isNan(const float &f) {
   // This can't be trusted with all compilers in release mode
   return f != f;
 }
-
-/**
- * Wrap simple R/W dmlc stream creation pattern to programmatically
- * match ifstream/ofstream creation pattern
- */
-template<typename StreamType, bool WRITING>
-class DmlcStream : public StreamType {
-  std::unique_ptr<dmlc::Stream> dmlc_stream;
- public:
-  DmlcStream(const std::string& name)
-    : StreamType(NULL, mf::STREAM_BUFFER_SIZE) {
-    if(!WRITING) {
-      dmlc_stream.reset(dmlc::SeekStream::CreateForRead(name.c_str()));
-    } else {
-      dmlc_stream.reset(dmlc::SeekStream::Create(name.c_str(), "wb", true));
-    }
-    this->set_stream(dmlc_stream.get());
-  }
-  inline bool is_open() const {
-    return !!dmlc_stream.get();
-  }
-  virtual ~DmlcStream() {
-    this->set_stream(NULL);
-  }
-};
-
-template<typename StreamType>
-class DmlcOutStream : public DmlcStream<StreamType, true> {
- public:
-  DmlcOutStream(const std::string& name) : DmlcStream<StreamType, true>(name) {}
-  ~DmlcOutStream() { this->flush(); }
-};
-
-
-typedef DmlcStream<dmlc::istream, false>  dmlc_istream;
-typedef DmlcOutStream<dmlc::ostream>      dmlc_ostream;
-
 
 } // namespace mf
 

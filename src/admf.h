@@ -29,7 +29,7 @@ class AdRegReadFilter : public BinaryRecordSourceFilter
            sqrt(admf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
     );
     if (iter_ != admf_.iter_) {
-      admf_.seteta(++iter_);
+      admf_.set_learning_rate(++iter_);
       admf_.set_etareg(iter_);
       return true;
     }
@@ -61,7 +61,7 @@ class AdRegFilter : public mf::StatusStack,
     awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[admf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     mf::Block *bk = (mf::Block *) block;
-    const float eta = admf_.eta_;
+    const float eta = admf_.learning_rate_;
     for (int i = 0; i < bk->user_size(); i++) {
       const mf::User &user = bk->user(i);
       const int uid = user.uid();
@@ -78,7 +78,7 @@ class AdRegFilter : public mf::StatusStack,
         const float pred = active(
           cblas_sdot(admf_.dim_, admf_.theta_[uid], 1,
                      admf_.phi_[vid], 1) + admf_.user_array_[uid] + admf_.video_array_[vid] +
-          admf_.gb_, admf_.loss_);
+          admf_.global_bias_, admf_.loss_);
         float error = cal_grad(rating, pred, admf_.loss_);
         error = eta * error;
         cblas_saxpy(admf_.dim_, error, admf_.theta_[uid], 1, q, 1);

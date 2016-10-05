@@ -9,28 +9,26 @@ namespace mf
 class MF
 {
  public:
-  MF(char *train_data, char *test_data, char *result, char *model,
-     int dim, int iter, float eta, float gam, float lambda, float gb,
-     int nu, int nv, int fly, int stride)
+  MF(const std::shared_ptr<mf::TrainConfig> config)
     : theta_(NULL)
       , phi_(NULL)
       , user_array_(NULL)
       , video_array_(NULL)
-      , train_data_(train_data)
-      , test_data_(test_data)
-      , result_(result)
-      , model_(model)
-      , gb_(gb)
-      , dim_(dim)
-      , iter_(iter)
-      , eta_(eta)
-      , gam_(gam)
-      , lambda_(lambda)
-      , eta0_(eta)
-      , nr_users_(nu)
-      , nr_videos_(nv)
-      , data_in_fly_(fly)
-      , prefetch_stride_(stride) {}
+      , train_data_(config->train())
+      , test_data_(config->test())
+      , result_(config->result())
+      , model_(config->model())
+      , global_bias_(config->global_bias())
+      , dim_(config->dim())
+      , iter_(config->iterations())
+      , learning_rate_(config->learning_rate())
+      , learning_rate_decay_(config->learning_rate_decay())
+      , lambda_(config->regularizer())
+      , learning_rate0_(config->learning_rate())
+      , nr_users_(config->nu())
+      , nr_videos_(config->nv())
+      , data_in_fly_(config->fly())
+      , prefetch_stride_(config->prefetch_stride()) {}
 
   virtual ~MF() {
     if(theta_) {
@@ -50,39 +48,34 @@ class MF
   virtual int read_model();
   virtual int save_model(int round);
 
-  void seteta(int round);
+  void set_learning_rate(int round);
 
   float **theta_, **phi_, *user_array_, *video_array_;
-  const char *const train_data_, *const test_data_, *const result_, *const model_;
-  float gb_;
-  int dim_, iter_;
-  std::atomic<float> eta_, gam_;
-  float lambda_, eta0_;
-  int nr_users_, nr_videos_, data_in_fly_, prefetch_stride_;//48B
+  const std::string train_data_, test_data_, result_, model_;
+  const float global_bias_;
+  const int dim_, iter_;
+  std::atomic<float> learning_rate_, learning_rate_decay_;
+  const float lambda_, learning_rate0_;
+  const int nr_users_, nr_videos_, data_in_fly_, prefetch_stride_;//48B
 };
 
 class DPMF : public MF
 {
  public:
-  DPMF(char *train_data, char *test_data, char *result, char *model,
-       int dim, int iter, float eta, float gam, float lambda,
-       float gb, int nu, int nv, int fly, int stride, float hypera,
-       float hyperb, float epsilon, int tau, int noise_size,
-       float temp, float mineta)
-    : MF(train_data, test_data, result, model, dim, iter,
-         eta, gam, lambda, gb, nu, nv, fly, stride)
-      , hyper_a_(hypera)
-      , hyper_b_(hyperb)
-      , temp_(temp)
-      , mineta_(mineta)
-      , noise_size_(noise_size)
-      , tau_(tau)
-      , epsilon_(epsilon)
-      , lambda_r_(1e0)
-      , lambda_ub_(1e2)
-      , lambda_vb_(1e2)
-      , ntrain_(0)
-      , ntest_(0) {}
+  DPMF(const std::shared_ptr<mf::TrainConfig> config)
+  : MF(config)
+    , hyper_a_(config->hypera())
+    , hyper_b_(config->hyperb())
+    , sgld_temperature_(config->sgld_temperature())
+    , min_learning_rate_(config->min_learning_rate())
+    , noise_size_(config->noise_size())
+    , max_ratings_(config->max_ratings())
+    , dfp_sensitivity_(config->dfp_sensitivity())
+    , lambda_r_(1e0)
+    , lambda_ub_(1e2)
+    , lambda_vb_(1e2)
+    , ntrain_(0)
+    , ntest_(0) {}
 
   ~DPMF() {
     if(noise_) {
@@ -99,7 +92,7 @@ class DPMF : public MF
 
   int sample_train_and_precompute_weight();
 
-  void seteta_cutoff(int round);
+  void set_learning_rate_cutoff(int round);
 
   int read_model();
 
@@ -125,11 +118,14 @@ class DPMF : public MF
   const float hyper_a_,
     hyper_b_;//192
   mf::Blocks train_sample_;
-  float temp_, mineta_;
-  int noise_size_, tau_;
-  float epsilon_, bound_;
+  const float sgld_temperature_, min_learning_rate_;
+  const int noise_size_;
+  int max_ratings_;
+  const float dfp_sensitivity_;
+  int bound_;
   float lambda_r_, lambda_ub_, lambda_vb_;
-  int ntrain_, ntest_;
+  int ntrain_;
+  const int ntest_;
   char pad[CACHE_LINE_SIZE];
   std::atomic<uint64> gcount;
 };
@@ -137,21 +133,18 @@ class DPMF : public MF
 class AdaptRegMF : public MF
 {
  public:
-  AdaptRegMF(char *train_data, char *test_data, char *valid_data, char *result, char *model,
-             int dim, int iter, float eta, float gam, float lambda, float gb,
-             int nu, int nv, int fly, int stride, int loss, int measure,
-             float eta_reg)
-    : MF(train_data, test_data, result, model, dim, iter,
-         eta, gam, lambda, gb, nu, nv, fly, stride)
-      , valid_data_(valid_data)
-      , eta_reg_(eta_reg)
-      , eta0_reg_(eta_reg)
-      , loss_(loss)
-      , measure_(measure)
-      , lam_u_(lambda)
-      , lam_v_(lambda)
-      , lam_bu_(lambda)
-      , lam_bv_(lambda) {}
+
+  AdaptRegMF(const std::shared_ptr<mf::TrainConfig> config)
+    : MF(config)
+      , valid_data_(config->valid())
+      , learning_rate_reg_(config->learning_rate_reg())
+      , learning_rate0_reg_(config->learning_rate_reg())
+      , loss_(config->loss())
+      , measure_(config->measure())
+      , lam_u_(config->regularizer())
+      , lam_v_(config->regularizer())
+      , lam_bu_(config->regularizer())
+      , lam_bv_(config->regularizer()) {}
 
   ~AdaptRegMF() {
     if(theta_old_) {
@@ -166,7 +159,7 @@ class AdaptRegMF : public MF
   void init1();
 
   inline void updateReg(int uid, int vid, float rating) {
-    float pred = active(cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1) + user_array_[uid] + video_array_[vid] + gb_, loss_);
+    float pred = active(cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1) + user_array_[uid] + video_array_[vid] + global_bias_, loss_);
     float grad = cal_grad(rating, pred, loss_);
     updateUV(grad, uid, vid);
     updateBias(grad, uid, vid);
@@ -174,25 +167,26 @@ class AdaptRegMF : public MF
 
   inline void updateUV(float grad, int uid, int vid) {
     float inner = cblas_sdot(dim_, theta_old_[uid], 1, phi_[vid], 1);
-    lam_u_ = std::max(0.0f, lam_u_ - eta_reg_ * eta_ * grad * inner);
+    lam_u_ = std::max(0.0f, lam_u_ - learning_rate_reg_ * learning_rate_ * grad * inner);
     inner = cblas_sdot(dim_, theta_[uid], 1, phi_old_[vid], 1);
-    lam_v_ = std::max(0.0f, lam_v_ - eta_reg_ * eta_ * grad * inner);
+    lam_v_ = std::max(0.0f, lam_v_ - learning_rate_reg_ * learning_rate_ * grad * inner);
   }
 
   inline void updateBias(float grad, int uid, int vid) {
-    lam_bu_ = std::max(0.0f, lam_bu_ - eta_reg_ * eta_ * grad * (bu_old_[uid]));
-    lam_bv_ = std::max(0.0f, lam_bv_ - eta_reg_ * eta_ * grad * (bv_old_[vid]));
+    lam_bu_ = std::max(0.0f, lam_bu_ - learning_rate_reg_ * learning_rate_ * grad * (bu_old_[uid]));
+    lam_bv_ = std::max(0.0f, lam_bv_ - learning_rate_reg_ * learning_rate_ * grad * (bv_old_[vid]));
   }
 
   void set_etareg(int round);
 
-  int plain_read_valid(const char *valid);
+  int plain_read_valid(const std::string& valid);
 
   std::vector<Record> recsv_;
   float **theta_old_, **phi_old_, *bu_old_, *bv_old_;
-  const char *valid_data_;
-  float eta_reg_, eta0_reg_;
-  int loss_, measure_;
+  const std::string valid_data_;
+  float learning_rate_reg_;
+  const float learning_rate0_reg_;
+  const int loss_, measure_;
   char pad1[CACHE_LINE_SIZE];
   float lam_u_;
   char pad2[CACHE_LINE_SIZE];

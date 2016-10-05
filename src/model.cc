@@ -1,6 +1,5 @@
 #include <memory>
 #include "model.h"
-#include <dmlc/io.h>
 
 namespace mf
 {
@@ -47,8 +46,8 @@ void MF::init() {
   }
 }
 
-void MF::seteta(int round) {
-  eta_ = (float) (eta0_ * 1.0 / pow(round, gam_));
+void MF::set_learning_rate(int round) {
+  learning_rate_ = (float) (learning_rate0_ * 1.0 / pow(round, learning_rate_decay_));
 }
 
 float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
@@ -80,7 +79,7 @@ float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
         CHECK_EQ(mf::isFinite(video_array_[vid]), true);
 
         const float error = rating - cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1)
-                            - user_array_[uid] - video_array_[vid] - gb_;
+                            - user_array_[uid] - video_array_[vid] - global_bias_;
         sl += error * error;
       }
     }
@@ -108,13 +107,12 @@ float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
 
 int MF::save_model(int round) {
   int rc = 0;
-  if(result_ && *result_) {
+  if(!result_.empty()) {
     std::string file = result_;
     file += "_";
     file += std::to_string(round);
-    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::Create(file.c_str(), "wb", true));
-    if (stream.get()) {
-      dmlc::ostream output(stream.get(), mf::STREAM_BUFFER_SIZE);
+    mf::dmlc_ostream output(file);
+    if (output.is_open()) {
       WRITEVAR(output, nr_users_);
       WRITEVAR(output, nr_videos_);
       WRITEVAR(output, dim_);
@@ -141,17 +139,20 @@ int MF::save_model(int round) {
           WRITEVAR(output, theta_[i][j]);
         }
       }
+    } else {
+      rc = errno ? errno : EIO;
     }
+  } else {
+    rc = EINVAL;
   }
   return rc;
 }
 
 int MF::read_model() {
   int rc = 0;
-  if(model_ && *model_) {
-    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(model_));
-    if (stream.get()) {
-      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
+  if(!model_.empty()) {
+    mf::dmlc_istream input(model_);
+    if (input.is_open()) {
       READVAR(input, nr_videos_);
       READVAR(input, nr_users_);
       READVAR(input, dim_);
@@ -177,8 +178,9 @@ int MF::read_model() {
           READVAR(input, theta_[i][j]);
         }
       }
-    } else {}
-    rc = EIO;
+    } else {
+      rc = errno ? errno : EIO;
+    }
   } else {
     rc = EINVAL;
   }
@@ -187,13 +189,12 @@ int MF::read_model() {
 
 int DPMF::save_model(int round) {
   int rc = 0;
-  if(result_ && *result_) {
+  if(!result_.empty()) {
     std::string file = result_;
     file += "_";
     file += std::to_string(round);
-    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::Create(file.c_str(), "wb", true));
-    if (stream.get()) {
-      dmlc::ostream output(stream.get(), mf::STREAM_BUFFER_SIZE);
+    mf::dmlc_ostream output(file);
+    if (output.is_open()) {
       WRITEVAR(output, nr_videos_);
       WRITEVAR(output, nr_users_);
       WRITEVAR(output, dim_);
@@ -228,7 +229,7 @@ int DPMF::save_model(int round) {
         }
       }
     } else {
-      rc = EIO;
+      rc = errno ? errno : EIO;
     }
   } else {
     rc = EINVAL;
@@ -238,10 +239,9 @@ int DPMF::save_model(int round) {
 
 int DPMF::read_hyper() {
   int rc = 0;
-  if(model_ && *model_) {
-    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(model_));
-    if (stream.get()) {
-      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
+  if(!model_.empty()) {
+    mf::dmlc_istream input(model_);
+    if (input.is_open()) {
       READVAR(input, nr_videos_);
       READVAR(input, nr_users_);
       READVAR(input, dim_);
@@ -258,7 +258,7 @@ int DPMF::read_hyper() {
       //read gb
       //fread(&gb,1,sizeof(float),fp);
     } else {
-      rc = EIO;
+      rc = errno ? errno : EIO;
     }
   } else {
     rc = EINVAL;
@@ -268,10 +268,9 @@ int DPMF::read_hyper() {
 
 int DPMF::read_model() {
   int rc = 0;
-  if(model_ && *model_) {
-    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(model_));
-    if (stream.get()) {
-      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
+  if(!model_.empty()) {
+    mf::dmlc_istream input(model_);
+    if (input.is_open()) {
       READVAR(input, nr_videos_);
       READVAR(input, nr_users_);
       READVAR(input, dim_);
@@ -306,7 +305,7 @@ int DPMF::read_model() {
         }
       }
     } else {
-      rc = EIO;
+      rc = errno ? errno : EIO;
     }
   } else {
     rc = EINVAL;
@@ -368,7 +367,7 @@ void DPMF::init() {
 
   if(ntrain_) {
     // eta is divided over training items
-    eta_.store(eta_.load() / ntrain_);
+    learning_rate_.store(learning_rate_.load() / ntrain_);
   }
 
   //bookkeeping
@@ -377,17 +376,17 @@ void DPMF::init() {
   gcountv = new std::atomic<uint64>[nr_videos_];
   gmutex = new std::mutex[nr_videos_];
   //differentially private
-  if (tau_ <= 0) {
-    tau_ = nr_videos_;
+  if (max_ratings_ <= 0) {
+    max_ratings_ = nr_videos_;
   }
-  if (epsilon_ <= 0.0f) {
+  if (dfp_sensitivity_ <= 0.0f) {
     bound_ = 1.0f;
   }
   else {
-    bound_ = epsilon_ * 1.0f / (4.0f * 25.0f * tau_);
+    bound_ = dfp_sensitivity_ * 1.0f / (4.0f * 25.0f * max_ratings_);
   }
-  uniform_int_ = std::uniform_int_distribution<>(0, noise_size_ - tau_ * (dim_ + 1) - 1);
-  assert(noise_size_ - tau_ * (dim_ + 1) > 10000);
+  uniform_int_ = std::uniform_int_distribution<>(0, noise_size_ - max_ratings_ * (dim_ + 1) - 1);
+  assert(noise_size_ - max_ratings_ * (dim_ + 1) > 10000);
 }
 
 void DPMF::block_count(int *uc, int *vc, mf::Block *bk) {
@@ -407,10 +406,9 @@ void DPMF::block_count(int *uc, int *vc, mf::Block *bk) {
 
 int DPMF::sample_train_and_precompute_weight() {
   int rc = 0;
-  if(train_data_ && *train_data_) {
-    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(train_data_));
-    if (stream.get()) {
-      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
+  if(!train_data_.empty()) {
+    mf::dmlc_istream input(train_data_);
+    if (input.is_open()) {
       uint32 isize;
       mf::Block bk, *pbk;
       std::vector<char> buf;
@@ -468,7 +466,7 @@ int DPMF::sample_train_and_precompute_weight() {
         }
       }
     } else {
-      rc = EIO;
+      rc = errno ? errno : EIO;
     }
   } else {
     rc = EINVAL;
@@ -483,7 +481,7 @@ void DPMF::finish_round(const mf::Blocks &blocks_test, int round, const std::chr
   const float tmse = calc_mse(blocks_test, nt);
   printf("round #%d\tRMSE=%f\ttRMSE=%f\t", round, sqrt(mse * 1.0 / ntr), sqrt(tmse * 1.0 / nt));
   sample_hyper(mse);
-  seteta_cutoff(round + 1);
+  set_learning_rate_cutoff(round + 1);
   printf("%f\n", std::chrono::duration<float>(Time::now() - s).count());
   if (round >= 100 && round % 20 == 0) {
     save_model(round);
@@ -498,9 +496,9 @@ void DPMF::finish_noise() {
     rndind = uniform_int_(generator);
     const size_t uc = gc - gcountu[i];
     gcountu[i] = 0;
-    cblas_saxpy(dim_, (float)sqrt(temp_ * eta_ * uc), noise_ + rndind, 1, theta_[i], 1);
+    cblas_saxpy(dim_, (float)sqrt(sgld_temperature_ * learning_rate_ * uc), noise_ + rndind, 1, theta_[i], 1);
     DCHECK_EQ(isFinite(user_array_[i]), true);
-    user_array_[i] += sqrt(temp_ * eta_ * uc) * noise_[rndind + dim_];
+    user_array_[i] += sqrt(sgld_temperature_ * learning_rate_ * uc) * noise_[rndind + dim_];
     DCHECK_EQ(isFinite(user_array_[i]), true);
   }
 #pragma omp parallel for
@@ -508,9 +506,9 @@ void DPMF::finish_noise() {
     rndind = uniform_int_(generator);
     const size_t vc = gc - gcountv[i].load();
     gcountv[i] = 0;
-    cblas_saxpy(dim_, (float)sqrt(temp_ * eta_ * vc), noise_ + rndind, 1, phi_[i], 1);
+    cblas_saxpy(dim_, (float)sqrt(sgld_temperature_ * learning_rate_ * vc), noise_ + rndind, 1, phi_[i], 1);
     DCHECK_EQ(isFinite(video_array_[i]), true);
-    video_array_[i] += sqrt(temp_ * eta_ * vc) * noise_[rndind + dim_];
+    video_array_[i] += sqrt(sgld_temperature_ * learning_rate_ * vc) * noise_[rndind + dim_];
     DCHECK_EQ(isFinite(video_array_[i]), true);
   }
   gcount = 0;
@@ -533,10 +531,10 @@ void DPMF::sample_hyper(float mse) {
   }
 }
 
-void DPMF::seteta_cutoff(int round) {
-  eta_ = std::max(mineta_, (float) (eta0_ * 1.0 / pow(round, gam_)));
+void DPMF::set_learning_rate_cutoff(int round) {
+  learning_rate_ = std::max(min_learning_rate_, (float) (learning_rate0_ * 1.0 / pow(round, learning_rate_decay_)));
   if(ntrain_) {
-    eta_.store(eta_.load() / ntrain_);
+    learning_rate_.store(learning_rate_.load() / ntrain_);
   }
 }
 
@@ -574,15 +572,14 @@ void AdaptRegMF::init1() {
 }
 
 void AdaptRegMF::set_etareg(int round) {
-  eta_reg_ = (float) (eta0_reg_ * 1.0 / pow(round, gam_));
+  learning_rate_reg_ = (float) (learning_rate0_reg_ * 1.0 / pow(round, learning_rate_decay_));
 }
 
-int AdaptRegMF::plain_read_valid(const char *valid) {
+int AdaptRegMF::plain_read_valid(const std::string& valid) {
   int rc = 0;
-  if(valid && *valid) {
-    std::unique_ptr<dmlc::Stream> stream(dmlc::SeekStream::CreateForRead(valid));
-    if (stream.get()) {
-      dmlc::istream input(stream.get(), mf::STREAM_BUFFER_SIZE);
+  if(!valid.empty()) {
+    mf::dmlc_istream input(valid);
+    if (input.is_open()) {
       std::vector<char> buf;
       uint32 isize;
       mf::Block bk;

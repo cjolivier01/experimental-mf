@@ -72,7 +72,9 @@ endif()
 include_directories(${PROJECT_SOURCE_DIR}/src)
 
 # generate protobuf sources
-set(proto_gen_folder "${CMAKE_BINARY_DIR}/src")
+#set(proto_gen_folder "${CMAKE_BINARY_DIR}"/src)
+set(proto_gen_folder ${PROJECT_SOURCE_DIR}/src)
+#set(proto_gen_folder "${PROJECT_BINARY_DIR}/src")
 include_directories(${proto_gen_folder})
 file(GLOB_RECURSE proto_files "src/*.proto")
 fastmf_protobuf_generate_cpp_py(${proto_gen_folder} proto_srcs proto_hdrs proto_python "${PROJECT_SOURCE_DIR}" "src" ${proto_files})
@@ -141,7 +143,7 @@ set(fastmf_LINKER_LIBS ${fastmf_LINKER_LIBS} ${PROTOBUF_LIBRARIES})
 set(fastmf_LINKER_LIBS ${fastmf_LINKER_LIBS} dmlccore ssl crypto)
 
 list(APPEND SOURCE ${proto_srcs})
-add_library(fastmf ${SOURCE} src/blocking_queue.h src/filter_util.h src/perf.h)
+add_library(fastmf ${SOURCE} src/blocking_queue.h src/filter_util.h src/perf.h src/train_config.h)
 target_link_libraries(fastmf ${fastmf_LINKER_LIBS})
 
 add_executable(getdata data/getdata.cc)

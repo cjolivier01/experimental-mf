@@ -3,8 +3,7 @@
 #include "../src/mf.h"
 #include "../src/dpmf.h"
 #include "../src/admf.h"
-#include "blocks.pb.h"
-#include "sync.h"
+#include "../src/train_config.h"
 #ifdef USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 #endif
@@ -26,16 +25,16 @@ static void show_help() {
   printf("--iter       [int]     : number of iterations.\n");
   printf("--fly        [int]     : number of threads.\n");
   printf("--stride     [int]     : prefetch strides.\n");
-  printf("--eta        [float]   : learning rate.\n");
+  printf("--lr         [float]   : learning rate.\n");
   printf("--lambda     [float]   : regularizer.\n");
   printf("--gam        [float]   : decay of learning rate.\n");
   printf("--bias       [float]   : global bias (important for accuracy).\n");
   printf("--mineta     [float]   : minimum learning rate (sometimes used in SGLD).\n");
   printf("--epsilon    [float]   : sensitivity of differentially privacy.\n");
-  printf("--tau        [int]     : maximum of ratings among all the users (usually after trimming your data).\n");
+  printf("--max-ratings [int]     : maximum of ratings among all the users (usually after trimming your data).\n");
   printf("--temp       [float]   : temperature in SGLD (can accelerate the convergence).\n");
   printf("--noise-size [int]     : the Gaussian numbers lookup table.\n");
-  printf("--eta-reg    [float]   : the learning rate for estimating regularization parameters.\n");
+  printf("--lr-reg     [float]   : the learning rate for estimating regularization parameters.\n");
   printf("--loss       [int]     : the loss type can be {least square, 0-1 logistic regression}.\n");
   printf("--measure    [int]     : support RMSE.\n");
 }
@@ -52,33 +51,35 @@ inline int setOnError(const mf::StatusStack& statusStack, int& rc) {
 static int run(MF& mf) {
   int rc = 0;
   mf.init();
-  if(mf.model_ != NULL) {
-    mf.read_model();
+  if(!mf.model_.empty()) {
+    rc = mf.read_model();
   }
 
-  mf::Blocks blocks_test;
-  rc = plain_read(mf.test_data_, blocks_test);
   if(!rc) {
-    std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(mf.train_data_));
-    if (f.get()) {
-      awsdl::perf::TimingInstrument timing;
-      SgdReadFilter read_f(mf, f.get(), blocks_test, &timing);
-      ParseFilter parse_f(mf.data_in_fly_, read_f, &timing);
-      SgdFilter sgd_f(mf, parse_f, &timing);
-      tbb::pipeline p;
-      p.add_filter(read_f);
-      p.add_filter(parse_f);
-      p.add_filter(sgd_f);
-      // Check errors in reverse order
-      p.run(mf.data_in_fly_);
-      IF_CHECK_TIMING( read_f.printBlockedTime("read_f queue blocked for")   );
-      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f queue blocked for") );
-      setOnError(sgd_f, rc);
-      setOnError(parse_f, rc);
-      setOnError(read_f, rc);
-      timing.print();
-    } else {
-      rc = errno;
+    mf::Blocks blocks_test;
+    rc = plain_read(mf.test_data_, blocks_test);
+    if (!rc) {
+      std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(mf.train_data_.c_str()));
+      if (f.get()) {
+        awsdl::perf::TimingInstrument timing;
+        SgdReadFilter read_f(mf, f.get(), blocks_test, &timing);
+        ParseFilter parse_f(mf.data_in_fly_, read_f, &timing);
+        SgdFilter sgd_f(mf, parse_f, &timing);
+        tbb::pipeline p;
+        p.add_filter(read_f);
+        p.add_filter(parse_f);
+        p.add_filter(sgd_f);
+        // Check errors in reverse order
+        p.run(mf.data_in_fly_);
+        IF_CHECK_TIMING(read_f.printBlockedTime("read_f queue blocked for"));
+        IF_CHECK_TIMING(parse_f.printBlockedTime("parse_f queue blocked for"));
+        setOnError(sgd_f, rc);
+        setOnError(parse_f, rc);
+        setOnError(read_f, rc);
+        timing.print();
+      } else {
+        rc = errno;
+      }
     }
   }
   return rc;
@@ -88,31 +89,33 @@ static int run(MF& mf) {
 static int run(DPMF& dpmf) {
   int rc = 0;
   dpmf.init();
-  if(dpmf.model_ != NULL) {
-    dpmf.read_hyper();
+  if(!dpmf.model_.empty()) {
+    rc = dpmf.read_hyper();
   }
-  mf::Blocks blocks_test;
-  rc = plain_read(dpmf.test_data_, blocks_test);
   if(!rc) {
-    std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_));
-    if (f.get()) {
-      awsdl::perf::TimingInstrument timing;
-      SgldReadFilter read_f(dpmf, f.get(), blocks_test, &timing);
-      ParseFilter parse_f(dpmf.data_in_fly_, read_f, &timing);
-      SgldFilter sgld_f(dpmf, parse_f, &timing);
-      tbb::pipeline p;
-      p.add_filter(read_f);
-      p.add_filter(parse_f);
-      p.add_filter(sgld_f);
-      p.run(dpmf.data_in_fly_);
-      IF_CHECK_TIMING( read_f.printBlockedTime("read_f queue blocked for")   );
-      IF_CHECK_TIMING( parse_f.printBlockedTime("parse_f queue blocked for") );
-      setOnError(sgld_f, rc);
-      setOnError(parse_f, rc);
-      setOnError(read_f, rc);
-      timing.print();
-    } else {
-      rc = errno;
+    mf::Blocks blocks_test;
+    rc = plain_read(dpmf.test_data_, blocks_test);
+    if (!rc) {
+      std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_.c_str()));
+      if (f.get()) {
+        awsdl::perf::TimingInstrument timing;
+        SgldReadFilter read_f(dpmf, f.get(), blocks_test, &timing);
+        ParseFilter parse_f(dpmf.data_in_fly_, read_f, &timing);
+        SgldFilter sgld_f(dpmf, parse_f, &timing);
+        tbb::pipeline p;
+        p.add_filter(read_f);
+        p.add_filter(parse_f);
+        p.add_filter(sgld_f);
+        p.run(dpmf.data_in_fly_);
+        IF_CHECK_TIMING(read_f.printBlockedTime("read_f queue blocked for"));
+        IF_CHECK_TIMING(parse_f.printBlockedTime("parse_f queue blocked for"));
+        setOnError(sgld_f, rc);
+        setOnError(parse_f, rc);
+        setOnError(read_f, rc);
+        timing.print();
+      } else {
+        rc = errno;
+      }
     }
   }
   return rc;
@@ -127,7 +130,7 @@ static int run(AdaptRegMF& admf) {
   if(!rc) {
     rc = admf.plain_read_valid(admf.valid_data_);
     if(!rc) {
-      std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_));
+      std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_.c_str()));
       if (f.get()) {
         awsdl::perf::TimingInstrument timing;
         AdRegReadFilter read_f(admf, f.get(), blocks_test, &timing);
@@ -153,9 +156,7 @@ static int run(AdaptRegMF& admf) {
   return rc;
 }
 
-int main(int argc, char** argv) {
-  int rc = 0;
-  do {
+/*
     char *train_data = NULL, *test_data = NULL, *result = NULL, *alg = NULL, *model = NULL;
     int dim = 128, iter = 15, tau = 0, nu = 0, nv = 0, fly = 8, stride = 2;
     float eta = 2e-2, lambda = 5e-3, gam = 1.0f, mineta = 1e-13;
@@ -198,35 +199,76 @@ int main(int argc, char** argv) {
         return 1;
       }
     }
-    if (train_data == NULL || nu == 0 || nv == 0) {
-      printf("Note that train_data/#users/#items are not optional!\n");
-      show_help();
-      return 1;
-    }
-    awsdl::perf::TimedScope timedScope;
-    if (!alg || !*alg || !strcmp(alg, "mf")) {
-      MF mf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
-            g_bias, nu, nv, fly, stride);
-      rc = run(mf);
-    } else if (!strcmp(alg, "dpmf")) {
-      DPMF dpmf(train_data, test_data, result, model, dim, iter, eta, gam, lambda,
-                g_bias, nu, nv, fly, stride, hypera, hyperb, epsilon, tau,
-                noise_size, temp, mineta);
-      rc = run(dpmf);
-    } else if (!strcmp(alg, "admf")) {
-      AdaptRegMF admf(train_data, test_data, valid_data, result, model, dim, iter, eta, gam,
-                      lambda, g_bias, nu, nv, fly, stride, loss, measure, eta_reg);
-      rc = run(admf);
+ */
+
+int main(int argc, char** argv) {
+  int rc = 0;
+  do {
+    std::shared_ptr<mf::TrainConfig> config = Configuration::createDefaultTrainConfig();
+    if(config) {
+      for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--train"))          config->set_train(argv[++i]);
+        else if (!strcmp(argv[i], "--test"))      config->set_test(argv[++i]);
+        else if (!strcmp(argv[i], "--valid"))     config->set_valid(argv[++i]);
+        else if (!strcmp(argv[i], "--result"))    config->set_result(argv[++i]);
+        else if (!strcmp(argv[i], "--model"))     config->set_model(argv[++i]);
+        else if (!strcmp(argv[i], "--alg"))       config->set_alg(argv[++i]);
+        else if (!strcmp(argv[i], "--dim"))       config->set_dim(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--iter"))      config->set_iterations(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--nu"))        config->set_nu(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--nv"))        config->set_nv(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--fly"))       config->set_fly(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--stride"))    config->set_prefetch_stride(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--lr"))        config->set_learning_rate(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--lambda"))    config->set_regularizer(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--gam"))       config->set_learning_rate_decay(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--bias"))      config->set_global_bias(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--mineta"))    config->set_min_learning_rate(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--epsilon"))   config->set_dfp_sensitivity(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--max-ratings")) config->set_max_ratings(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--hypera"))    config->set_hypera(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--hyperb"))    config->set_hyperb(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--temp"))      config->set_sgld_temperature(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--noise-size")) config->set_noise_size(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--lr-reg"))    config->set_learning_rate_reg(atof(argv[++i]));
+        else if (!strcmp(argv[i], "--loss"))      config->set_loss(atoi(argv[++i]));
+        else if (!strcmp(argv[i], "--measure"))   config->set_measure(atoi(argv[++i]));
+        else {
+          printf("%s, unknown parameters, exit\n", argv[i]);
+          return 1;
+        }
+      }
+      if (!config->has_train() || !config->has_nu() || !config->nu()
+          || !config->has_nv() || !config->nv()) {
+        printf("Note that train_data/#users/#items are not optional!\n");
+        show_help();
+        return 1;
+      }
+      awsdl::perf::TimedScope timedScope;
+      if (!config->has_alg() || config->alg().empty() || config->alg() == "mf") {
+        MF mf(config);
+        rc = run(mf);
+      } else if (config->alg() == "dpmf") {
+        DPMF dpmf(config);
+        rc = run(dpmf);
+      } else if (config->alg() == "admf") {
+        AdaptRegMF admf(config);
+        rc = run(admf);
+      } else {
+        printf("Please select a solver: mf | dpmf | admf\n");
+        rc = EINVAL;
+      }
+      if (rc) {
+        fprintf(stderr, "Error: %s\n", strerror(rc));
+      }
     } else {
-      printf("Please select a solver: mf | dpmf | admf\n");
+      LOG(ERROR) << "Could not create default configuration";
       rc = EINVAL;
-    }
-    if (rc) {
-      fprintf(stderr, "Error: %s\n", strerror(rc));
+      break;
     }
   } while(false);
 #ifdef USE_JEMALLOC
-  malloc_stats_print(NULL, NULL, NULL);
+  //malloc_stats_print(NULL, NULL, NULL);
 #endif
   return rc;
 }

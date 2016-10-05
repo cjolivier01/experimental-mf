@@ -37,7 +37,7 @@ class SgdReadFilter : public BinaryRecordSourceFilter
 
     // Check if we reached the desired number of iterations
     if (iter_ != mf_.iter_) {
-      mf_.seteta(++iter_);
+      mf_.set_learning_rate(++iter_);
       return true;
     }
     return false;
@@ -115,7 +115,7 @@ class SgdFilter : public mf::StatusStack,
     padding(mf_.dim_);
     const mf::Block *bk = (mf::Block *) block;
     CHECK_NOTNULL(bk);
-    const float lameta = 1.0f - mf_.eta_ * mf_.lambda_;
+    const float lameta = 1.0f - mf_.learning_rate_ * mf_.lambda_;
     int vid, j, i;
     float error, rating, *theta, *phi;
     for (i = 0; i < bk->user_size(); ++i) {
@@ -136,8 +136,8 @@ class SgdFilter : public mf::StatusStack,
         rating = rec.rating();
         error = rating
                 - cblas_sdot(mf_.dim_, theta, 1, phi, 1)
-                - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.gb_;
-        error = mf_.eta_ * error;
+                - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.global_bias_;
+        error = mf_.learning_rate_ * error;
         cblas_saxpy(mf_.dim_, error, theta, 1, q, 1);
         cblas_saxpy(mf_.dim_, lameta - 1.0f, theta, 1, theta, 1);
         cblas_saxpy(mf_.dim_, error, phi, 1, theta, 1);
@@ -155,8 +155,8 @@ class SgdFilter : public mf::StatusStack,
         rating = rec.rating();
         error = rating
                 - cblas_sdot(mf_.dim_, theta, 1, phi, 1)
-                - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.gb_;
-        error = mf_.eta_ * error;
+                - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.global_bias_;
+        error = mf_.learning_rate_ * error;
         cblas_saxpy(mf_.dim_, error, theta, 1, q, 1);
         cblas_saxpy(mf_.dim_, lameta - 1.0f, theta, 1, theta, 1);
         cblas_saxpy(mf_.dim_, error, phi, 1, theta, 1);
