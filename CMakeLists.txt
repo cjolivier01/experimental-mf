@@ -72,8 +72,8 @@ endif()
 include_directories(${PROJECT_SOURCE_DIR}/src)
 
 # generate protobuf sources
-#set(proto_gen_folder "${CMAKE_BINARY_DIR}"/src)
-set(proto_gen_folder ${PROJECT_SOURCE_DIR}/src)
+set(proto_gen_folder ${CMAKE_BINARY_DIR}/src)
+#set(proto_gen_folder ${PROJECT_SOURCE_DIR}/src)
 #set(proto_gen_folder "${PROJECT_BINARY_DIR}/src")
 include_directories(${proto_gen_folder})
 file(GLOB_RECURSE proto_files "src/*.proto")
