@@ -51,8 +51,7 @@ class SgdReadFilter : public BinaryRecordSourceFilter
 };
 
 class ParseFilter : public mf::ObjectPool<mf::Block>,
-                    public mf::StatusStack,
-                    public tbb::filter
+                    public PipelineFilter
 {
 
  public:
@@ -60,13 +59,13 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
               mf::ObjectPool<std::vector<char> > &free_buffer_pool,
               awsdl::perf::TimingInstrument *timing)
     : mf::ObjectPool<mf::Block>(fly * 10)
-      , tbb::filter(parallel)
+      , PipelineFilter(parallel)
       , free_buffer_pool_(free_buffer_pool)
       , timing_(timing)
   {
   }
 
-  void *operator()(void *chunk) {
+  void *execute(void *chunk) {
     IF_CHECK_TIMING( awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_PARSE, "FILTER_STAGE_PARSE") );
     std::vector<char> *p = (std::vector<char> *) chunk;
     if (p) {
@@ -95,13 +94,12 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
   awsdl::perf::TimingInstrument *     timing_;
 };
 
-class SgdFilter : public mf::StatusStack,
-                  public tbb::filter
+class SgdFilter : public PipelineFilter
 {
 
  public:
   SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool, awsdl::perf::TimingInstrument *timing)
-    : tbb::filter(parallel)
+    : PipelineFilter(parallel)
       , mf_(model)
       , free_block_pool_(free_block_pool)
       , timing_(timing) {
@@ -109,7 +107,7 @@ class SgdFilter : public mf::StatusStack,
   ~SgdFilter() {
   }
 
-  void *operator()(void *block) {
+  void *execute(void *block) {
     awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[mf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     padding(mf_.dim_);

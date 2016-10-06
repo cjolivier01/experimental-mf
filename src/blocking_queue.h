@@ -42,7 +42,7 @@ class BlockingQueue
     sema_.post();
   }
 
-  Type pop() {
+  Type Pop() {
     IF_CHECK_TIMING( const uint64_t start = awsdl::perf::getMicroTickCount(); )
     sema_.wait();
     std::unique_lock<std::mutex> lck(mutex_);
@@ -53,7 +53,7 @@ class BlockingQueue
     return t;
   }
 
-  Type &pop(Type &t) {
+  Type &Pop(Type &t) {
     IF_CHECK_TIMING( const uint64_t start = awsdl::perf::getMicroTickCount(); )
     sema_.wait();
     std::unique_lock<std::mutex> lck(mutex_);
@@ -64,13 +64,13 @@ class BlockingQueue
     return t;
   }
 
-  bool empty() const {
+  bool Empty() const {
     // Would be better if size check were on an atomic var, so that we can avoid the lock
     std::unique_lock<std::mutex> lck(mutex_);
     return q_.empty();
   }
 
-  size_t size() const {
+  size_t Size() const {
     // Would be better if size check were on an atomic var, so that we can avoid the lock
     std::unique_lock<std::mutex> lck(mutex_);
     return q_.size();

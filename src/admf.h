@@ -43,21 +43,20 @@ class AdRegReadFilter : public BinaryRecordSourceFilter
   static awsdl::perf::TimingInstrument  timing_;
 };
 
-class AdRegFilter : public mf::StatusStack,
-                    public tbb::filter
+class AdRegFilter : public PipelineFilter
 {
 
  public:
   AdRegFilter(AdaptRegMF &model,
               mf::ObjectPool<mf::Block> &free_block_pool,
               awsdl::perf::TimingInstrument *timing)
-    : tbb::filter(parallel)
+    : PipelineFilter(parallel)
       , admf_(model)
       , free_block_pool_(free_block_pool)
       , timing_(timing)
   {}
 
-  void *operator()(void *block) {
+  void *execute(void *block) {
     awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[admf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     mf::Block *bk = (mf::Block *) block;

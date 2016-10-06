@@ -34,18 +34,17 @@ class SgldReadFilter : public BinaryRecordSourceFilter
 };
 
 
-class SgldFilter : public mf::StatusStack,
-                   public tbb::filter
+class SgldFilter : public PipelineFilter
 {
  public:
   SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool, awsdl::perf::TimingInstrument *timing)
-    : tbb::filter(parallel)
+    : PipelineFilter(parallel)
       , dpmf_(dpmf)
       , free_block_pool_(free_block_pool)
       , timing_(timing) {
   }
 
-  void *operator()(void *block) {
+  void *execute(void *block) {
     float q[dpmf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     float p[dpmf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     mf::Block *bk = (mf::Block *) block;

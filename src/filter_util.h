@@ -3,9 +3,12 @@
 
 #include <list>
 #include "blocking_queue.h"
+#include <dmlc/concurrency.h>
 
 namespace mf
 {
+
+#define USE_DMLC_QUEUE // Use Dmlc-core's blocking queue
 
 template<typename Object>
 class ObjectPool
@@ -16,15 +19,22 @@ class ObjectPool
 #pragma omp parallel for
     for (size_t x = 0; x < pool_size_; ++x) {
       Object *v = new Object();
-      free_object_pool_.push(v);
+      free_object_pool_.Push(v);
     }
   }
 
   ~ObjectPool() {
-    CHECK_EQ(free_object_pool_.size(), pool_size_);
-    while (!free_object_pool_.empty()) {
-      Object *v = free_object_pool_.pop();
-      delete v;
+    CHECK_EQ(free_object_pool_.Size(), pool_size_);
+    while (free_object_pool_.Size()) {
+#ifdef USE_DMLC_QUEUE
+      Object *v = NULL;
+      free_object_pool_.Pop(&v);
+#else
+      Object *v = free_object_pool_.Pop();
+#endif
+      if(v) {
+        delete v;
+      }
     }
   }
 
@@ -33,23 +43,35 @@ class ObjectPool
   }
 
   Object *allocateObject() {
-    return free_object_pool_.pop();
+#ifdef USE_DMLC_QUEUE
+    Object *v = NULL;
+    free_object_pool_.Pop(&v);
+    return v;
+#else
+    return free_object_pool_.Pop();
+#endif
   }
 
   void freeObject(Object *obj) {
     CHECK_NOTNULL(obj);
-    free_object_pool_.push(obj);
+    free_object_pool_.Push(obj);
   }
 
   IF_CHECK_TIMING(
     void printBlockedTime(const std::string& label, bool reset = false) {
+#ifndef USE_DMLC_QUEUE
       free_object_pool_.printBlockedTime(label, reset);
+#endif
     }
   )
 
  private:
   const size_t                pool_size_;
+#ifndef USE_DMLC_QUEUE
   mf::BlockingQueue<Object *> free_object_pool_;
+#else
+  dmlc::ConcurrentBlockingQueue<Object *> free_object_pool_;
+#endif
 };
 
 
@@ -61,7 +83,8 @@ class StatusStack {
     OK = 0,
     PARSE_ERROR = 0x81000000,
     IO_ERROR,
-    POOL_ERROR
+    POOL_ERROR,
+    UNHANDLED_ERROR
   };
 
   struct Status {
@@ -107,6 +130,28 @@ enum FilterStages {
   FILTER_STAGE_READ,
   FILTER_STAGE_PARSE,
   FILTER_STAGE_CALC
+};
+
+class PipelineFilter : public tbb::filter
+                     , public StatusStack {
+ public:
+  PipelineFilter(tbb::filter::mode filter_mode)
+  : tbb::filter(filter_mode) {
+
+  }
+  virtual ~PipelineFilter() {
+  }
+  virtual void *execute(void *) = 0;
+
+  virtual void *operator()(void *v) {
+    try {
+      return execute(v);
+    }
+    catch(...) {
+      addStatus(UNHANDLED_ERROR, "Unhandled exception");
+    }
+    return NULL; // Filter is finished
+  }
 };
 
 } // namespace mf
