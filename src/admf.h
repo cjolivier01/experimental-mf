@@ -43,20 +43,18 @@ class AdRegReadFilter : public BinaryRecordSourceFilter
   static mf::perf::TimingInstrument  timing_;
 };
 
-class AdRegFilter : public PipelineFilter
+class AdRegFilter : public PipelineFilter<mf::Block>
 {
 
  public:
-  AdRegFilter(AdaptRegMF &model,
-              mf::ObjectPool<mf::Block> &free_block_pool,
-              mf::perf::TimingInstrument *timing)
-    : PipelineFilter(parallel)
+  AdRegFilter(AdaptRegMF &model, mf::ObjectPool<mf::Block> &free_block_pool, mf::perf::TimingInstrument *timing)
+    : PipelineFilter(parallel, &free_block_pool)
       , admf_(model)
       , free_block_pool_(free_block_pool)
       , timing_(timing)
   {}
 
-  void *execute(void *block) {
+  void *execute(mf::Block *block) {
     mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[admf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     mf::Block *bk = (mf::Block *) block;
@@ -100,7 +98,6 @@ class AdRegFilter : public PipelineFilter
       const size_t ii = rand() % admf_.recsv_.size();
       admf_.updateReg(admf_.recsv_[ii].u_, admf_.recsv_[ii].v_, admf_.recsv_[ii].r_);
     }
-    free_block_pool_.freeObject(bk);
     return NULL;
   }
 

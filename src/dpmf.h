@@ -34,17 +34,16 @@ class SgldReadFilter : public BinaryRecordSourceFilter
 };
 
 
-class SgldFilter : public PipelineFilter
+class SgldFilter : public PipelineFilter<mf::Block>
 {
  public:
   SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool, mf::perf::TimingInstrument *timing)
-    : PipelineFilter(parallel)
+    : PipelineFilter(parallel, &free_block_pool)
       , dpmf_(dpmf)
-      , free_block_pool_(free_block_pool)
       , timing_(timing) {
   }
 
-  void *execute(void *block) {
+  void *execute(mf::Block *block) {
     float q[dpmf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     float p[dpmf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     mf::Block *bk = (mf::Block *) block;
@@ -122,13 +121,11 @@ class SgldFilter : public PipelineFilter
         phiind = phiind + dpmf_.dim_ + 1;
       }
     }
-    free_block_pool_.freeObject(bk);
     return NULL;
   }
 
  private:
   DPMF&                           dpmf_;
-  mf::ObjectPool<mf::Block>&      free_block_pool_;
   mf::perf::TimingInstrument * timing_;
 };
 

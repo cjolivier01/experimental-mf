@@ -12,13 +12,13 @@ namespace mf
  * Pass binary records from source to tbb pipeline
  */
 class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
-                                  public PipelineFilter {
+                                  public PipelineFilter<> {
  public:
   BinaryRecordSourceFilter(const size_t bufferCount,
                            dmlc::SeekStream *fr,
                            mf::perf::TimingInstrument *timing_ref)
     : mf::ObjectPool<std::vector<char> >(bufferCount)
-      , PipelineFilter(serial_in_order)
+      , PipelineFilter<>(serial_in_order, NULL)
       , fr_(fr)
       , stream_(new dmlc::istream(fr, STREAM_BUFFER_SIZE))
       , pass_(0)
@@ -33,7 +33,7 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
    */
   virtual bool onSourceStreamComplete() = 0;
 
-  virtual void *execute(void *) {
+  void *execute(object_t *) {
     std::chrono::time_point<Time> entryTime = Time::now();
     if(!pass_++) {
       s_ = Time::now();

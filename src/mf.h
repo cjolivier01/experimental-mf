@@ -51,23 +51,21 @@ class SgdReadFilter : public BinaryRecordSourceFilter
 };
 
 class ParseFilter : public mf::ObjectPool<mf::Block>,
-                    public PipelineFilter
+                    public PipelineFilter< std::vector<char> >
 {
 
  public:
   ParseFilter(size_t fly,
-              mf::ObjectPool<std::vector<char> > &free_buffer_pool,
+              mf::ObjectPool< std::vector<char> > &free_buffer_pool,
               mf::perf::TimingInstrument *timing)
     : mf::ObjectPool<mf::Block>(fly * 10)
-      , PipelineFilter(parallel)
-      , free_buffer_pool_(free_buffer_pool)
+      , PipelineFilter(parallel, &free_buffer_pool)
       , timing_(timing)
   {
   }
 
-  void *execute(void *chunk) {
+  void *execute(std::vector<char> *p) {
     mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_PARSE, "FILTER_STAGE_PARSE");
-    std::vector<char> *p = (std::vector<char> *) chunk;
     if (p) {
       // Get next block object in free queue
       mf::Block *bk = allocateObject();
@@ -75,7 +73,6 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
       if (bk) {
         const bool ok = bk->ParseFromArray(p->data(), (int)p->size());
         // Return the buffer
-        free_buffer_pool_.freeObject(p);
         if (ok) {
           return bk;
         } else {
@@ -90,24 +87,22 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
 
  private:
   char                                pad[CACHE_LINE_SIZE];
-  mf::ObjectPool<std::vector<char> > &free_buffer_pool_;
   mf::perf::TimingInstrument *     timing_;
 };
 
-class SgdFilter : public PipelineFilter
+class SgdFilter : public PipelineFilter<mf::Block>
 {
 
  public:
   SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool, mf::perf::TimingInstrument *timing)
-    : PipelineFilter(parallel)
+    : PipelineFilter(parallel, &free_block_pool)
       , mf_(model)
-      , free_block_pool_(free_block_pool)
       , timing_(timing) {
   }
   ~SgdFilter() {
   }
 
-  void *execute(void *block) {
+  void *execute(mf::Block *block) {
     mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[mf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     padding(mf_.dim_);
@@ -171,16 +166,12 @@ class SgdFilter : public PipelineFilter
 
       }
     }
-    // Return block to queue
-    mf::Block *b = (mf::Block *)block;
-    free_block_pool_.freeObject(b);
     return NULL;
   }
 
  private:
   const MF&                       mf_;
-  mf::ObjectPool<mf::Block>&      free_block_pool_;
-  mf::perf::TimingInstrument * timing_;
+  mf::perf::TimingInstrument *    timing_;
 };
 
 } // namespace mf
