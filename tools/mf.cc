@@ -109,6 +109,11 @@ static int run(DPMF& dpmf) {
         p.run(dpmf.data_in_fly_);
         read_f.printBlockedTime("read_f queue blocked for");
         parse_f.printBlockedTime("parse_f queue blocked for");
+
+        read_f.printAll();
+        parse_f.printAll();
+        sgld_f.printAll();
+
         setOnError(sgld_f, rc);
         setOnError(parse_f, rc);
         setOnError(read_f, rc);

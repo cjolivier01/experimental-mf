@@ -65,8 +65,8 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
   }
 
   void *execute(std::vector<char> *p) {
-    mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_PARSE, "FILTER_STAGE_PARSE");
     if (p) {
+      mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_PARSE, "FILTER_STAGE_PARSE");
       // Get next block object in free queue
       mf::Block *bk = allocateObject();
       CHECK_NOTNULL(bk);
@@ -103,67 +103,69 @@ class SgdFilter : public PipelineFilter<mf::Block>
   }
 
   void *execute(mf::Block *block) {
-    mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
-    float q[mf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
-    padding(mf_.dim_);
-    const mf::Block *bk = (mf::Block *) block;
-    CHECK_NOTNULL(bk);
-    const float lameta = 1.0f - mf_.learning_rate_ * mf_.lambda_;
-    int vid, j, i;
-    float error, rating, *theta, *phi;
-    for (i = 0; i < bk->user_size(); ++i) {
-      const mf::User &user = bk->user(i);
-      const int uid = user.uid();
-      theta = (float *) __builtin_assume_aligned(mf_.theta_[uid], CACHE_LINE_SIZE);
-      const int size = user.record_size();
-      for (j = 0; j < size - mf_.prefetch_stride_; j++) {
+    if(block) {
+      mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
+      float q[mf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
+      padding(mf_.dim_);
+      const mf::Block *bk = (mf::Block *) block;
+      CHECK_NOTNULL(bk);
+      const float lameta = 1.0f - mf_.learning_rate_ * mf_.lambda_;
+      int vid, j, i;
+      float error, rating, *theta, *phi;
+      for (i = 0; i < bk->user_size(); ++i) {
+        const mf::User &user = bk->user(i);
+        const int uid = user.uid();
+        theta = (float *) __builtin_assume_aligned(mf_.theta_[uid], CACHE_LINE_SIZE);
+        const int size = user.record_size();
+        for (j = 0; j < size - mf_.prefetch_stride_; j++) {
 #ifdef FETCH
-        const mf::User_Record& rec_fetch = user.record(j+mf_.prefetch_stride_);
-        const int vid_fetch = rec_fetch.vid();
-        prefetch_range((char*)(mf_.phi_[vid_fetch]), pad*sizeof(float));
+          const mf::User_Record& rec_fetch = user.record(j+mf_.prefetch_stride_);
+          const int vid_fetch = rec_fetch.vid();
+          prefetch_range((char*)(mf_.phi_[vid_fetch]), pad*sizeof(float));
 #endif
-        memset(q, 0, sizeof(float) * mf_.dim_);
-        const mf::User_Record &rec = user.record(j);
-        vid = rec.vid();
-        phi = (float *) __builtin_assume_aligned(mf_.phi_[vid], CACHE_LINE_SIZE);
-        rating = rec.rating();
-        error = rating
-                - cblas_sdot(mf_.dim_, theta, 1, phi, 1)
-                - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.global_bias_;
-        error = mf_.learning_rate_ * error;
-        cblas_saxpy(mf_.dim_, error, theta, 1, q, 1);
-        cblas_saxpy(mf_.dim_, lameta - 1.0f, theta, 1, theta, 1);
-        cblas_saxpy(mf_.dim_, error, phi, 1, theta, 1);
-        cblas_saxpy(mf_.dim_, lameta, phi, 1, q, 1);
-        cblas_scopy(mf_.dim_, q, 1, phi, 1);
-        mf_.user_array_[uid] = lameta * mf_.user_array_[uid] + error;
-        mf_.video_array_[vid] = lameta * mf_.video_array_[vid] + error;
-      }
-      //prefetch_range((char*)(mf_.theta_[bk->user(i+1).uid()]), pad*sizeof(float));
-      for (; j < size; j++) {
-        memset(q, 0.0, sizeof(float) * mf_.dim_);
-        const mf::User_Record &rec = user.record(j);
-        vid = rec.vid();
-        phi = (float *) __builtin_assume_aligned(mf_.phi_[vid], CACHE_LINE_SIZE);
-        rating = rec.rating();
-        error = rating
-                - cblas_sdot(mf_.dim_, theta, 1, phi, 1)
-                - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.global_bias_;
-        error = mf_.learning_rate_ * error;
-        cblas_saxpy(mf_.dim_, error, theta, 1, q, 1);
-        cblas_saxpy(mf_.dim_, lameta - 1.0f, theta, 1, theta, 1);
-        cblas_saxpy(mf_.dim_, error, phi, 1, theta, 1);
-        cblas_saxpy(mf_.dim_, lameta, phi, 1, q, 1);
-        cblas_scopy(mf_.dim_, q, 1, phi, 1);
-        mf_.user_array_[uid]  = lameta * mf_.user_array_[uid]  + error;
-        mf_.video_array_[vid] = lameta * mf_.video_array_[vid] + error;
+          memset(q, 0, sizeof(float) * mf_.dim_);
+          const mf::User_Record &rec = user.record(j);
+          vid = rec.vid();
+          phi = (float *) __builtin_assume_aligned(mf_.phi_[vid], CACHE_LINE_SIZE);
+          rating = rec.rating();
+          error = rating
+                  - cblas_sdot(mf_.dim_, theta, 1, phi, 1)
+                  - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.global_bias_;
+          error = mf_.learning_rate_ * error;
+          cblas_saxpy(mf_.dim_, error, theta, 1, q, 1);
+          cblas_saxpy(mf_.dim_, lameta - 1.0f, theta, 1, theta, 1);
+          cblas_saxpy(mf_.dim_, error, phi, 1, theta, 1);
+          cblas_saxpy(mf_.dim_, lameta, phi, 1, q, 1);
+          cblas_scopy(mf_.dim_, q, 1, phi, 1);
+          mf_.user_array_[uid] = lameta * mf_.user_array_[uid] + error;
+          mf_.video_array_[vid] = lameta * mf_.video_array_[vid] + error;
+        }
+        //prefetch_range((char*)(mf_.theta_[bk->user(i+1).uid()]), pad*sizeof(float));
+        for (; j < size; j++) {
+          memset(q, 0.0, sizeof(float) * mf_.dim_);
+          const mf::User_Record &rec = user.record(j);
+          vid = rec.vid();
+          phi = (float *) __builtin_assume_aligned(mf_.phi_[vid], CACHE_LINE_SIZE);
+          rating = rec.rating();
+          error = rating
+                  - cblas_sdot(mf_.dim_, theta, 1, phi, 1)
+                  - mf_.user_array_[uid] - mf_.video_array_[vid] - mf_.global_bias_;
+          error = mf_.learning_rate_ * error;
+          cblas_saxpy(mf_.dim_, error, theta, 1, q, 1);
+          cblas_saxpy(mf_.dim_, lameta - 1.0f, theta, 1, theta, 1);
+          cblas_saxpy(mf_.dim_, error, phi, 1, theta, 1);
+          cblas_saxpy(mf_.dim_, lameta, phi, 1, q, 1);
+          cblas_scopy(mf_.dim_, q, 1, phi, 1);
+          mf_.user_array_[uid] = lameta * mf_.user_array_[uid] + error;
+          mf_.video_array_[vid] = lameta * mf_.video_array_[vid] + error;
 
-        DCHECK_EQ(isFinite(mf_.user_array_[uid]), true);
-        DCHECK_EQ(isFinite(mf_.video_array_[vid]), true);
+          DCHECK_EQ(isFinite(mf_.user_array_[uid]), true);
+          DCHECK_EQ(isFinite(mf_.video_array_[vid]), true);
 
-        DCHECK_LT(mf_.user_array_[uid],  100.0f);
-        DCHECK_LT(mf_.video_array_[vid], 100.0f);
+          DCHECK_LT(mf_.user_array_[uid], 100.0f);
+          DCHECK_LT(mf_.video_array_[vid], 100.0f);
 
+        }
       }
     }
     return NULL;

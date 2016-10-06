@@ -117,6 +117,14 @@ class StatusStack {
     return statuses_.rbegin()->code;
   }
 
+  void printAll() const {
+    std::unique_lock<std::mutex> lk(mutex_);
+    for(auto i = statuses_.rbegin(), e = statuses_.rend(); i != e; ++i) {
+      std::cerr << "Status code: " << i->code << " ( " << i->message << " )" << std::endl;
+    }
+    std::cerr << std::flush;
+  }
+
  private:
   mutable std::mutex  mutex_;
   std::list<Status>   statuses_;
