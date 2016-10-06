@@ -47,7 +47,7 @@ static int read_raw(IFSTREAM_T& ins, std::vector<Tuple>& data, size_t maxRecords
     ;
   std::vector<std::string> tokens;
   tokenize(line, " ,\t", tokens);
-  const size_t nn = !tokens.empty() ? atoi((*tokens.rbegin()).c_str()) : 0;
+  const size_t nn = !tokens.empty() ? atol((*tokens.rbegin()).c_str()) : 0;
   data.reserve(nn);
   while(std::getline(ins, line) && data.size() < maxRecords) {
     tokens.clear();
@@ -55,9 +55,9 @@ static int read_raw(IFSTREAM_T& ins, std::vector<Tuple>& data, size_t maxRecords
     tokenize(line, " ,\t", tokens);
     if(tokens.size() >= 3) {
       data.push_back(std::make_tuple(
-        atoi(tokens[0].c_str()),
-        atoi(tokens[1].c_str()),
-        atof(tokens[2].c_str()))
+        atol(tokens[0].c_str()),
+        atol(tokens[1].c_str()),
+        atol(tokens[2].c_str()))
       );
     }
   }
