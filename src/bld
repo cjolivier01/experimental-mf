@@ -1,0 +1,8 @@
+set -x
+set -e 
+/usr/bin/protoc blocks.proto --cpp_out=.
+g++ -std=c++11 -O0 -m64 -g -I/opt/intel/tbb/include -I/opt/intel/mkl/include -I/usr/local/include -L/opt/intel/mkl/lib/intel64 -L/opt/intel/tbb/lib/intel64/gcc4.4/ -L/usr/local/lib model.cc main.cc blocks.pb.cc -o mf -ltbb -lprotobuf -lmkl_rt -lm -DDETAILS -fopenmp
+
+g++ -std=c++11 -O3 -m64 -g -I/opt/intel/tbb/include -I/opt/intel/mkl/include -I/usr/local/include -L/opt/intel/mkl/lib/intel64 -L/opt/intel/tbb/lib/intel64/gcc4.4/ -L/usr/local/lib model.cc main.cc blocks.pb.cc -o mf -ltbb -lprotobuf -lmkl_rt -lm -DDETAILS -fopenmp
+
+
