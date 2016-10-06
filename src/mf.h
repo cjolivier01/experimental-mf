@@ -19,7 +19,7 @@ class SgdReadFilter : public BinaryRecordSourceFilter
 {
 
  public:
-  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test, awsdl::perf::TimingInstrument *timing)
+  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test, mf::perf::TimingInstrument *timing)
   : BinaryRecordSourceFilter(mf.data_in_fly_ * 10, fr, timing)
     , mf_(mf)
     , iter_(1)
@@ -57,7 +57,7 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
  public:
   ParseFilter(size_t fly,
               mf::ObjectPool<std::vector<char> > &free_buffer_pool,
-              awsdl::perf::TimingInstrument *timing)
+              mf::perf::TimingInstrument *timing)
     : mf::ObjectPool<mf::Block>(fly * 10)
       , PipelineFilter(parallel)
       , free_buffer_pool_(free_buffer_pool)
@@ -66,7 +66,7 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
   }
 
   void *execute(void *chunk) {
-    IF_CHECK_TIMING( awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_PARSE, "FILTER_STAGE_PARSE") );
+    mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_PARSE, "FILTER_STAGE_PARSE");
     std::vector<char> *p = (std::vector<char> *) chunk;
     if (p) {
       // Get next block object in free queue
@@ -91,14 +91,14 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
  private:
   char                                pad[CACHE_LINE_SIZE];
   mf::ObjectPool<std::vector<char> > &free_buffer_pool_;
-  awsdl::perf::TimingInstrument *     timing_;
+  mf::perf::TimingInstrument *     timing_;
 };
 
 class SgdFilter : public PipelineFilter
 {
 
  public:
-  SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool, awsdl::perf::TimingInstrument *timing)
+  SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool, mf::perf::TimingInstrument *timing)
     : PipelineFilter(parallel)
       , mf_(model)
       , free_block_pool_(free_block_pool)
@@ -108,7 +108,7 @@ class SgdFilter : public PipelineFilter
   }
 
   void *execute(void *block) {
-    awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
+    mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[mf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     padding(mf_.dim_);
     const mf::Block *bk = (mf::Block *) block;
@@ -180,7 +180,7 @@ class SgdFilter : public PipelineFilter
  private:
   const MF&                       mf_;
   mf::ObjectPool<mf::Block>&      free_block_pool_;
-  awsdl::perf::TimingInstrument * timing_;
+  mf::perf::TimingInstrument * timing_;
 };
 
 } // namespace mf

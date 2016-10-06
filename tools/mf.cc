@@ -31,7 +31,7 @@ static void show_help() {
   printf("--bias       [float]   : global bias (important for accuracy).\n");
   printf("--mineta     [float]   : minimum learning rate (sometimes used in SGLD).\n");
   printf("--epsilon    [float]   : sensitivity of differentially privacy.\n");
-  printf("--max-ratings [int]     : maximum of ratings among all the users (usually after trimming your data).\n");
+  printf("--max-ratings [int]    : maximum of ratings among all the users (usually after trimming your data).\n");
   printf("--temp       [float]   : temperature in SGLD (can accelerate the convergence).\n");
   printf("--noise-size [int]     : the Gaussian numbers lookup table.\n");
   printf("--lr-reg     [float]   : the learning rate for estimating regularization parameters.\n");
@@ -61,7 +61,7 @@ static int run(MF& mf) {
     if (!rc) {
       std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(mf.train_data_.c_str()));
       if (f.get()) {
-        awsdl::perf::TimingInstrument timing;
+        mf::perf::TimingInstrument timing;
         SgdReadFilter read_f(mf, f.get(), blocks_test, &timing);
         ParseFilter parse_f(mf.data_in_fly_, read_f, &timing);
         SgdFilter sgd_f(mf, parse_f, &timing);
@@ -71,8 +71,8 @@ static int run(MF& mf) {
         p.add_filter(sgd_f);
         // Check errors in reverse order
         p.run(mf.data_in_fly_);
-        IF_CHECK_TIMING(read_f.printBlockedTime("read_f queue blocked for"));
-        IF_CHECK_TIMING(parse_f.printBlockedTime("parse_f queue blocked for"));
+        read_f.printBlockedTime("read_f queue blocked for");
+        parse_f.printBlockedTime("parse_f queue blocked for");
         setOnError(sgd_f, rc);
         setOnError(parse_f, rc);
         setOnError(read_f, rc);
@@ -98,7 +98,7 @@ static int run(DPMF& dpmf) {
     if (!rc) {
       std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_.c_str()));
       if (f.get()) {
-        awsdl::perf::TimingInstrument timing;
+        mf::perf::TimingInstrument timing;
         SgldReadFilter read_f(dpmf, f.get(), blocks_test, &timing);
         ParseFilter parse_f(dpmf.data_in_fly_, read_f, &timing);
         SgldFilter sgld_f(dpmf, parse_f, &timing);
@@ -107,8 +107,8 @@ static int run(DPMF& dpmf) {
         p.add_filter(parse_f);
         p.add_filter(sgld_f);
         p.run(dpmf.data_in_fly_);
-        IF_CHECK_TIMING(read_f.printBlockedTime("read_f queue blocked for"));
-        IF_CHECK_TIMING(parse_f.printBlockedTime("parse_f queue blocked for"));
+        read_f.printBlockedTime("read_f queue blocked for");
+        parse_f.printBlockedTime("parse_f queue blocked for");
         setOnError(sgld_f, rc);
         setOnError(parse_f, rc);
         setOnError(read_f, rc);
@@ -132,7 +132,7 @@ static int run(AdaptRegMF& admf) {
     if(!rc) {
       std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_.c_str()));
       if (f.get()) {
-        awsdl::perf::TimingInstrument timing;
+        mf::perf::TimingInstrument timing;
         AdRegReadFilter read_f(admf, f.get(), blocks_test, &timing);
         ParseFilter parse_f(admf.data_in_fly_, read_f, &timing);
         AdRegFilter admf_f(admf, parse_f, &timing);
@@ -141,8 +141,8 @@ static int run(AdaptRegMF& admf) {
         p.add_filter(parse_f);
         p.add_filter(admf_f);
         p.run(admf.data_in_fly_);
-        IF_CHECK_TIMING(read_f.printBlockedTime("read_f queue blocked for"));
-        IF_CHECK_TIMING(parse_f.printBlockedTime("parse_f queue blocked for"));
+        read_f.printBlockedTime("read_f queue blocked for");
+        parse_f.printBlockedTime("parse_f queue blocked for");
         setOnError(admf_f, rc);
         setOnError(parse_f, rc);
         setOnError(read_f, rc);
@@ -244,7 +244,7 @@ int main(int argc, char** argv) {
         show_help();
         return 1;
       }
-      awsdl::perf::TimedScope timedScope;
+      mf::perf::TimedScope timedScope;
       if (!config->has_alg() || config->alg().empty() || config->alg() == "mf") {
         MF mf(config);
         rc = run(mf);
@@ -267,8 +267,12 @@ int main(int argc, char** argv) {
       break;
     }
   } while(false);
+  if(rc) {
+    LOG(ERROR) << "Error: " << strerror(rc) << std::endl << std::flush;
+  } else {
 #ifdef USE_JEMALLOC
-  //malloc_stats_print(NULL, NULL, NULL);
+    //malloc_stats_print(NULL, NULL, NULL);
 #endif
+  }
   return rc;
 }

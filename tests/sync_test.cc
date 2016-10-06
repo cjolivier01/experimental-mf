@@ -2,7 +2,7 @@
 #include "sync.h"
 #include "test_util.h"
 
-using namespace awsdl;
+using namespace mf;
 
 static STestThreadData::SharedPtr sync_test_top(const size_t count)
 {

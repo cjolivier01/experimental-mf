@@ -16,7 +16,7 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
  public:
   BinaryRecordSourceFilter(const size_t bufferCount,
                            dmlc::SeekStream *fr,
-                           awsdl::perf::TimingInstrument *timing_ref)
+                           mf::perf::TimingInstrument *timing_ref)
     : mf::ObjectPool<std::vector<char> >(bufferCount)
       , PipelineFilter(serial_in_order)
       , fr_(fr)
@@ -39,7 +39,7 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
       s_ = Time::now();
       in_time_ = in_time_.zero();
     }
-    IF_CHECK_TIMING( awsdl::perf::TimingItem inFunc(timing_ref_, FILTER_STAGE_READ, "FILTER_STAGE_READ") );
+    mf::perf::TimingItem inFunc(timing_ref_, FILTER_STAGE_READ, "FILTER_STAGE_READ");
     std::vector<char> *pbuffer = allocateObject();
     if (pbuffer) {
       int isize = 0;
@@ -87,7 +87,7 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
   std::chrono::time_point<Time>   s_;
   std::chrono::duration<float>    in_time_;
  public:
-  awsdl::perf::TimingInstrument * timing_ref_;
+  mf::perf::TimingInstrument * timing_ref_;
 };
 
 

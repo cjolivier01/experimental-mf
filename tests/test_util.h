@@ -4,7 +4,7 @@
 #include <mutex>
 #include "sync.h"
 
-namespace awsdl
+namespace mf
 {
 
 /**
@@ -101,6 +101,6 @@ inline T randomRange(const T lo, const T hi) {
   return dis(gen);
 }
 
-} // namespace awsdl
+} // namespace mf
 
 #endif //AWSDL_TEST_UTIL_H

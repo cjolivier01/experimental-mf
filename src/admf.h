@@ -14,7 +14,7 @@ class AdRegReadFilter : public BinaryRecordSourceFilter
   AdRegReadFilter(AdaptRegMF &admf,
                   dmlc::SeekStream *fr,
                   const mf::Blocks &blocks_test,
-                  awsdl::perf::TimingInstrument *timing)
+                  mf::perf::TimingInstrument *timing)
     : BinaryRecordSourceFilter(admf.data_in_fly_ * 10U, fr, timing)
       , admf_(admf)
       , blocks_test_(blocks_test)
@@ -40,7 +40,7 @@ class AdRegReadFilter : public BinaryRecordSourceFilter
   AdaptRegMF&                           admf_;
   const mf::Blocks&                     blocks_test_;
   int                                   iter_;
-  static awsdl::perf::TimingInstrument  timing_;
+  static mf::perf::TimingInstrument  timing_;
 };
 
 class AdRegFilter : public PipelineFilter
@@ -49,7 +49,7 @@ class AdRegFilter : public PipelineFilter
  public:
   AdRegFilter(AdaptRegMF &model,
               mf::ObjectPool<mf::Block> &free_block_pool,
-              awsdl::perf::TimingInstrument *timing)
+              mf::perf::TimingInstrument *timing)
     : PipelineFilter(parallel)
       , admf_(model)
       , free_block_pool_(free_block_pool)
@@ -57,7 +57,7 @@ class AdRegFilter : public PipelineFilter
   {}
 
   void *execute(void *block) {
-    awsdl::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
+    mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
     float q[admf_.dim_] __attribute__((aligned(CACHE_LINE_SIZE)));
     mf::Block *bk = (mf::Block *) block;
     const float eta = admf_.learning_rate_;
@@ -107,7 +107,7 @@ class AdRegFilter : public PipelineFilter
  private:
   AdaptRegMF&                     admf_;
   mf::ObjectPool<mf::Block>&      free_block_pool_;
-  awsdl::perf::TimingInstrument * timing_;
+  mf::perf::TimingInstrument * timing_;
 };
 
 } // namespace mf

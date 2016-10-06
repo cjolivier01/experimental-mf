@@ -12,7 +12,7 @@
 
 //#define AWSDL_DEBUG_LOG_THREADS
 
-namespace awsdl
+namespace mf
 {
 
 template<class ObjectType>
@@ -544,6 +544,6 @@ inline ManagedThread::SharedPtr ThreadGroup::create_thread(const char *threadNam
   return newThread;
 }
 
-} // namespace awsdl
+} // namespace mf
 
 #endif // _AWSDL_SYNC_H

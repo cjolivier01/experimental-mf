@@ -6,8 +6,9 @@
 #include <iomanip>
 #include <unordered_set>
 
-namespace awsdl
+namespace mf
 {
+
 namespace perf
 {
 
@@ -26,6 +27,7 @@ inline uint64_t getMicroTickCount() {
 
 #define MICRO2MS(__micro$)  (((__micro$) + 500)/1000)
 #define MICRO2MSF(__micro$) (float(__micro$)/1000)
+#define NANO2MSF(__nano$)   (float(__nano$)/1000000)
 #define MICRO2S(__micro$)   (((__micro$) + 500000)/1000000)
 #define MICRO2SF(__micro$)  (MICRO2MSF(__micro$)/1000)
 
@@ -244,6 +246,6 @@ class DebugCheckUsing {
 #endif //NDEBUG
 
 } // namespace perf
-} // namespace awsdl
+} // namespace mf
 
 #endif //_AWSDL_PERF_H
