@@ -49,116 +49,137 @@ inline int setOnError(const mf::StatusStack& statusStack, int& rc) {
 
 //assuming test data can fit into RAM
 static int run(MF& mf) {
-  int rc = 0;
-  mf.init();
-  if(!mf.model_.empty()) {
-    rc = mf.read_model();
-  }
+  try {
+    int rc = 0;
+    mf.init();
+    if (!mf.model_.empty()) {
+      rc = mf.read_model();
+    }
 
-  if(!rc) {
-    mf::Blocks blocks_test;
-    rc = plain_read(mf.test_data_, blocks_test);
     if (!rc) {
-      std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(mf.train_data_.c_str()));
-      if (f.get()) {
-        mf::perf::TimingInstrument timing;
-        SgdReadFilter read_f(mf, f.get(), blocks_test, &timing);
-        ParseFilter parse_f(mf.data_in_fly_, read_f, &timing);
-        SgdFilter sgd_f(mf, parse_f, &timing);
-        tbb::pipeline p;
-        p.add_filter(read_f);
-        p.add_filter(parse_f);
-        p.add_filter(sgd_f);
-        // Check errors in reverse order
-        p.run(mf.data_in_fly_);
-        read_f.printBlockedTime("read_f queue blocked for");
-        parse_f.printBlockedTime("parse_f queue blocked for");
-        setOnError(sgd_f, rc);
-        setOnError(parse_f, rc);
-        setOnError(read_f, rc);
-        timing.print();
-      } else {
-        rc = errno;
+      mf::Blocks blocks_test;
+      rc = plain_read(mf.test_data_, blocks_test);
+      if (!rc) {
+        std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(mf.train_data_.c_str()));
+        if (f.get()) {
+          mf::perf::TimingInstrument timing;
+          SgdReadFilter read_f(mf, f.get(), blocks_test, &timing);
+          ParseFilter parse_f(mf.data_in_fly_, read_f, &timing);
+          SgdFilter sgd_f(mf, parse_f, &timing);
+          read_f.addDownstreamFilter(&parse_f);
+          parse_f.addDownstreamFilter(&sgd_f);
+          tbb::pipeline p;
+          p.add_filter(read_f);
+          p.add_filter(parse_f);
+          p.add_filter(sgd_f);
+          // Check errors in reverse order
+          p.run(mf.data_in_fly_);
+          read_f.printBlockedTime("read_f queue blocked for");
+          parse_f.printBlockedTime("parse_f queue blocked for");
+          setOnError(sgd_f, rc);
+          setOnError(parse_f, rc);
+          setOnError(read_f, rc);
+          timing.print();
+        } else {
+          rc = errno;
+        }
       }
     }
+    return rc;
+  } catch(std::runtime_error& e) {
+    LOG(ERROR) << "Unhandled exception: " << e.what();
+    return -1;
   }
-  return rc;
 }
 
 //assuming test data can fit into RAM
 static int run(DPMF& dpmf) {
-  int rc = 0;
-  dpmf.init();
-  if(!dpmf.model_.empty()) {
-    rc = dpmf.read_hyper();
-  }
-  if(!rc) {
-    mf::Blocks blocks_test;
-    rc = plain_read(dpmf.test_data_, blocks_test);
+  try {
+    int rc = 0;
+    dpmf.init();
+    if (!dpmf.model_.empty()) {
+      rc = dpmf.read_hyper();
+    }
     if (!rc) {
-      std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_.c_str()));
-      if (f.get()) {
-        mf::perf::TimingInstrument timing;
-        SgldReadFilter read_f(dpmf, f.get(), blocks_test, &timing);
-        ParseFilter parse_f(dpmf.data_in_fly_, read_f, &timing);
-        SgldFilter sgld_f(dpmf, parse_f, &timing);
-        tbb::pipeline p;
-        p.add_filter(read_f);
-        p.add_filter(parse_f);
-        p.add_filter(sgld_f);
-        p.run(dpmf.data_in_fly_);
-        read_f.printBlockedTime("read_f queue blocked for");
-        parse_f.printBlockedTime("parse_f queue blocked for");
+      mf::Blocks blocks_test;
+      rc = plain_read(dpmf.test_data_, blocks_test);
+      if (!rc) {
+        std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_.c_str()));
+        if (f.get()) {
+          mf::perf::TimingInstrument timing;
+          SgldReadFilter read_f(dpmf, f.get(), blocks_test, &timing);
+          ParseFilter parse_f(dpmf.data_in_fly_, read_f, &timing);
+          SgldFilter sgld_f(dpmf, parse_f, &timing);
+          read_f.addDownstreamFilter(&parse_f);
+          parse_f.addDownstreamFilter(&sgld_f);
+          tbb::pipeline p;
+          p.add_filter(read_f);
+          p.add_filter(parse_f);
+          p.add_filter(sgld_f);
+          p.run(dpmf.data_in_fly_);
+          read_f.printBlockedTime("read_f queue blocked for");
+          parse_f.printBlockedTime("parse_f queue blocked for");
 
-        read_f.printAll();
-        parse_f.printAll();
-        sgld_f.printAll();
+          read_f.printAll();
+          parse_f.printAll();
+          sgld_f.printAll();
 
-        setOnError(sgld_f, rc);
-        setOnError(parse_f, rc);
-        setOnError(read_f, rc);
-        timing.print();
-      } else {
-        rc = errno;
+          setOnError(sgld_f, rc);
+          setOnError(parse_f, rc);
+          setOnError(read_f, rc);
+          timing.print();
+        } else {
+          rc = errno;
+        }
       }
     }
+    return rc;
+  } catch(std::runtime_error& e) {
+    LOG(ERROR) << "Unhandled exception: " << e.what();
+    return -1;
   }
-  return rc;
 }
 
 //assuming test, valid data can fit into RAM
 static int run(AdaptRegMF& admf) {
-  int rc = 0;
-  admf.init1();
-  mf::Blocks blocks_test;
-  rc = plain_read(admf.test_data_, blocks_test);
-  if(!rc) {
-    rc = admf.plain_read_valid(admf.valid_data_);
-    if(!rc) {
-      std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_.c_str()));
-      if (f.get()) {
-        mf::perf::TimingInstrument timing;
-        AdRegReadFilter read_f(admf, f.get(), blocks_test, &timing);
-        ParseFilter parse_f(admf.data_in_fly_, read_f, &timing);
-        AdRegFilter admf_f(admf, parse_f, &timing);
-        tbb::pipeline p;
-        p.add_filter(read_f);
-        p.add_filter(parse_f);
-        p.add_filter(admf_f);
-        p.run(admf.data_in_fly_);
-        read_f.printBlockedTime("read_f queue blocked for");
-        parse_f.printBlockedTime("parse_f queue blocked for");
-        setOnError(admf_f, rc);
-        setOnError(parse_f, rc);
-        setOnError(read_f, rc);
-        timing.print();
-      } else {
-        rc = errno;
-        CHECK_NE(rc, 0);
+  try {
+    int rc = 0;
+    admf.init1();
+    mf::Blocks blocks_test;
+    rc = plain_read(admf.test_data_, blocks_test);
+    if (!rc) {
+      rc = admf.plain_read_valid(admf.valid_data_);
+      if (!rc) {
+        std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_.c_str()));
+        if (f.get()) {
+          mf::perf::TimingInstrument timing;
+          AdRegReadFilter read_f(admf, f.get(), blocks_test, &timing);
+          ParseFilter parse_f(admf.data_in_fly_, read_f, &timing);
+          AdRegFilter admf_f(admf, parse_f, &timing);
+          read_f.addDownstreamFilter(&parse_f);
+          parse_f.addDownstreamFilter(&admf_f);
+          tbb::pipeline p;
+          p.add_filter(read_f);
+          p.add_filter(parse_f);
+          p.add_filter(admf_f);
+          p.run(admf.data_in_fly_);
+          read_f.printBlockedTime("read_f queue blocked for");
+          parse_f.printBlockedTime("parse_f queue blocked for");
+          setOnError(admf_f, rc);
+          setOnError(parse_f, rc);
+          setOnError(read_f, rc);
+          timing.print();
+        } else {
+          rc = errno;
+          CHECK_NE(rc, 0);
+        }
       }
     }
+    return rc;
+  } catch(std::runtime_error& e) {
+    LOG(ERROR) << "Unhandled exception: " << e.what();
+    return -1;
   }
-  return rc;
 }
 
 /*
@@ -206,7 +227,13 @@ static int run(AdaptRegMF& admf) {
     }
  */
 
+#define DISABLE_OMP
+
 int main(int argc, char** argv) {
+#if !defined(NDEBUG) && defined(DISABLE_OMP)
+  omp_set_dynamic(0);     // Explicitly disable dynamic teams
+  omp_set_num_threads(1);
+#endif
   int rc = 0;
   do {
     std::shared_ptr<mf::TrainConfig> config = Configuration::createDefaultTrainConfig();

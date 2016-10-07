@@ -28,17 +28,19 @@ class SgdReadFilter : public BinaryRecordSourceFilter
   }
 
   bool onSourceStreamComplete() {
-    int nn;
-    printf("iter#%d\t%f\ttRMSE=%f\n",
-           iter_,
-           std::chrono::duration<float>(Time::now() - s_).count(),
-           sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-    );
+    if(flush()) {
+      int nn;
+      printf("iter#%d\t%f\ttRMSE=%f\n",
+             iter_,
+             std::chrono::duration<float>(Time::now() - s_).count(),
+             sqrt(mf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+      );
 
-    // Check if we reached the desired number of iterations
-    if (iter_ != mf_.iter_) {
-      mf_.set_learning_rate(++iter_);
-      return true;
+      // Check if we reached the desired number of iterations
+      if (iter_ != mf_.iter_) {
+        mf_.set_learning_rate(++iter_);
+        return true;
+      }
     }
     return false;
   }

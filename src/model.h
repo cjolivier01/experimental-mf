@@ -60,6 +60,8 @@ class MF
 
   void set_learning_rate(int round);
 
+  static constexpr float GAUSSIAN_NOISE_MULTIPLIER = 1e-2;
+
   float **theta_, **phi_, *user_array_, *video_array_;
   const std::string train_data_, test_data_, result_, model_;
   const float global_bias_;
@@ -126,8 +128,8 @@ class DPMF : public MF
 
   void sample_hyper(float mse);
 
-  uint64 *gcountu;
-  std::atomic<uint64> *gcountv;//128
+  std::atomic<uint64_t> *gcountu;
+  std::atomic<uint64_t> *gcountv;//128
   std::mutex *gmutex;
   std::uniform_int_distribution<> uniform_int_;
   float *ur_,
@@ -142,8 +144,8 @@ class DPMF : public MF
   const int noise_size_;
   int max_ratings_;
   const float dfp_sensitivity_;
-  int bound_;
   float lambda_r_, lambda_ub_, lambda_vb_;
+  long bound_;
   int ntrain_;
   const int ntest_;
   char pad[CACHE_LINE_SIZE];

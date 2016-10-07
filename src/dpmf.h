@@ -20,9 +20,11 @@ class SgldReadFilter : public BinaryRecordSourceFilter
   }
 
   bool onSourceStreamComplete() {
-    if (iter_ != dpmf_.iter_) {
-      dpmf_.finish_round(blocks_test_, iter_++, s_);
-      return true;
+    if(flush()) {
+      if (iter_ != dpmf_.iter_) {
+        dpmf_.finish_round(blocks_test_, iter_++, s_);
+        return true;
+      }
     }
     return false;
   }
@@ -37,10 +39,34 @@ class SgldReadFilter : public BinaryRecordSourceFilter
 class SgldFilter : public PipelineFilter<mf::Block>
 {
  public:
-  SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool, mf::perf::TimingInstrument *timing)
-    : PipelineFilter(parallel, &free_block_pool)
+  SgldFilter(DPMF &dpmf,
+             mf::ObjectPool<mf::Block> &free_block_pool,
+             mf::perf::TimingInstrument *timing)
+    : PipelineFilter(serial_in_order /*parallel*/, &free_block_pool)
       , dpmf_(dpmf)
-      , timing_(timing) {
+      , timing_(timing)
+      , max_noise_(0.0f) {
+    seen_users_ = new std::atomic<size_t>[dpmf_.nr_users_];
+    memset(seen_users_, 0, dpmf_.nr_users_ * sizeof(seen_users_[0]));
+    seen_vid_ = new std::atomic<size_t>[dpmf_.nr_videos_];
+    memset(seen_vid_, 0, dpmf_.nr_videos_ * sizeof(seen_vid_[0]));
+  }
+
+  void checkNoise() {
+#ifndef NDEBUG
+    for (int i = 0; i < dpmf_.nr_users_; ++i) {
+      for (int j = 0; j < dpmf_.dim_; ++j) {
+        const float f = dpmf_.theta_[i][j];
+        DCHECK_EQ(mf::isFinite(f), true);
+      }
+    }
+    for (int i = 0; i < dpmf_.nr_videos_; ++i) {
+      for (int j = 0; j < dpmf_.dim_; j++) {
+        const float f = dpmf_.phi_[i][j];
+        DCHECK_EQ(mf::isFinite(f), true);
+      }
+    }
+#endif
   }
 
   void *execute(mf::Block *block) {
@@ -52,43 +78,83 @@ class SgldFilter : public PipelineFilter<mf::Block>
       mf::Block *bk = (mf::Block *) block;
       const float eta = dpmf_.learning_rate_;
       const float scal = eta * dpmf_.ntrain_ * dpmf_.bound_ * dpmf_.lambda_r_;
-      CHECK_LT(scal, 100.0); // should be a small number, like 0.01
+      DCHECK_LT(scal, 100.0); // should be a small number, like 0.01
+
+      float pt2 = 0.0, pt3 = 0.0;
+
       for (int i = 0; i < bk->user_size(); i++) {
         const mf::User &user = bk->user(i);
         const int uid = user.uid();
+        const size_t seenCount = ++seen_users_[uid];
 
         const float entryUser = dpmf_.user_array_[uid];
 
         DCHECK_EQ(isFinite(dpmf_.user_array_[uid]), true);
+        DCHECK_LT(fabs(dpmf_.user_array_[uid]), 10.0f);
 
-        const int size = user.record_size();
         int thetaind = dpmf_.uniform_int_(generator);
         int phiind = dpmf_.uniform_int_(generator);
 
-        for (int j = 0; j < size; j++) {
+        //checkNoise();
+        int lastVid = 0;
+
+        for (size_t j = 0, size = (size_t)user.record_size(); j < size; j++) {
           memset(q, 0, sizeof(float) * dpmf_.dim_);
           const mf::User_Record &rec = user.record(j);
           const int vid = rec.vid();
+
+          const size_t seenVid = ++seen_vid_[vid];
 
           const float preUser0 = dpmf_.user_array_[uid];
           const float preVid0 = dpmf_.video_array_[vid];
 
           DCHECK_EQ(isFinite(dpmf_.video_array_[vid]), true);
+          DCHECK_LT(fabs(dpmf_.video_array_[vid]), 10.0f);
+
           const float rating = rec.rating();
 
           dpmf_.gmutex[vid].lock();
-          const int gc = dpmf_.gcount.fetch_add(1);
-          const int vc = gc - dpmf_.gcountv[vid].exchange(gc);
+          const uint64_t gc = dpmf_.gcount.fetch_add(1);
+          DCHECK_GE(gc, dpmf_.gcountv[vid].load());
+          const uint64_t vc = gc - dpmf_.gcountv[vid].exchange(gc);
           dpmf_.gmutex[vid].unlock();
 
-          const int uc = gc - dpmf_.gcountu[uid];
+          const uint64_t uc = gc - dpmf_.gcountu[uid];
+          DCHECK_GE(gc, dpmf_.gcountu[uid]);
           dpmf_.gcountu[uid] = gc;
-          cblas_saxpy(dpmf_.dim_, (float) sqrt(dpmf_.sgld_temperature_ * eta * uc), dpmf_.noise_ + thetaind, 1,
-                      dpmf_.theta_[uid], 1);
-          cblas_saxpy(dpmf_.dim_, (float) sqrt(dpmf_.sgld_temperature_ * eta * vc), dpmf_.noise_ + phiind, 1,
-                      dpmf_.phi_[vid], 1);
+
+          cblas_saxpy(dpmf_.dim_,
+                      (float) sqrt(dpmf_.sgld_temperature_ * eta * uc),
+                      dpmf_.noise_ + thetaind,
+                      1,
+                      dpmf_.theta_[uid],
+                      1);
+          cblas_saxpy(dpmf_.dim_,
+                      (float) sqrt(dpmf_.sgld_temperature_ * eta * vc),
+                      dpmf_.noise_ + phiind,
+                      1,
+                      dpmf_.phi_[vid],
+                      1);
+
+          max_noise_ = std::max(max_noise_, (float)fabs(dpmf_.noise_[thetaind + dpmf_.dim_]));
+          max_noise_ = std::max(max_noise_, (float)fabs(dpmf_.noise_[phiind + dpmf_.dim_]));
+
+          DCHECK_LT(thetaind + dpmf_.dim_, dpmf_.noise_size_); // need to modulus it, i guess, or re-randomize it
+          DCHECK_LT(phiind + dpmf_.dim_, dpmf_.noise_size_);
+
+          const float ffu = (float)sqrt(dpmf_.sgld_temperature_ * eta * uc) * dpmf_.noise_[thetaind + dpmf_.dim_];
+          const float ffv = (float)sqrt(dpmf_.sgld_temperature_ * eta * vc) * dpmf_.noise_[phiind + dpmf_.dim_];
+
           dpmf_.user_array_[uid] += sqrt(dpmf_.sgld_temperature_ * eta * uc) * dpmf_.noise_[thetaind + dpmf_.dim_];
           dpmf_.video_array_[vid] += sqrt(dpmf_.sgld_temperature_ * eta * vc) * dpmf_.noise_[phiind + dpmf_.dim_];
+
+          DCHECK_EQ(isFinite(dpmf_.user_array_[uid]), true);
+          DCHECK_EQ(isFinite(dpmf_.video_array_[vid]), true);
+          DCHECK_LT(fabs(dpmf_.user_array_[uid]), 10.0f);
+          DCHECK_LT(fabs(dpmf_.video_array_[vid]), 10.0f);
+
+          pt2 = cblas_sdot(dpmf_.dim_, dpmf_.theta_[uid], 1, dpmf_.phi_[vid], 1);
+          pt3 = dpmf_.user_array_[uid] - dpmf_.video_array_[vid] - dpmf_.global_bias_;
 
           float error = rating
                         - cblas_sdot(dpmf_.dim_, dpmf_.theta_[uid], 1, dpmf_.phi_[vid], 1)
@@ -119,13 +185,16 @@ class SgldFilter : public PipelineFilter<mf::Block>
           DCHECK_EQ(isFinite(dpmf_.user_array_[uid]), true);
           DCHECK_EQ(isFinite(dpmf_.video_array_[vid]), true);
 
-          DCHECK_LT(dpmf_.user_array_[uid], 100.0f);
-          DCHECK_LT(dpmf_.video_array_[vid], 100.0f);
+          DCHECK_LT(fabs(dpmf_.user_array_[uid]), 10.0f);
+          DCHECK_LT(fabs(dpmf_.video_array_[vid]), 10.0f);
 
           thetaind = thetaind + dpmf_.dim_ + 1;
           phiind = phiind + dpmf_.dim_ + 1;
-        }
-      }
+
+          lastVid = vid;
+        } // End of vid loop
+        DCHECK_LT(fabs(dpmf_.user_array_[uid]), 10.0f);
+      } // End of user loop
     }
     return NULL;
   }
@@ -133,6 +202,9 @@ class SgldFilter : public PipelineFilter<mf::Block>
  private:
   DPMF&                        dpmf_;
   mf::perf::TimingInstrument * timing_;
+  // TODO: remove seen_users_, seen_vid_
+  std::atomic<size_t>        * seen_users_, *seen_vid_;
+  float max_noise_;
 };
 
 } // namespace mf

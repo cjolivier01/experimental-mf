@@ -22,16 +22,18 @@ class AdRegReadFilter : public BinaryRecordSourceFilter
   }
 
   bool onSourceStreamComplete() {
-    int nn;
-    printf("iter#%d\t%f\ttRMSE=%f\n",
-           iter_,
-           std::chrono::duration<float>(Time::now() - s_).count(),
-           sqrt(admf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
-    );
-    if (iter_ != admf_.iter_) {
-      admf_.set_learning_rate(++iter_);
-      admf_.set_etareg(iter_);
-      return true;
+    if(flush()) {
+      int nn;
+      printf("iter#%d\t%f\ttRMSE=%f\n",
+             iter_,
+             std::chrono::duration<float>(Time::now() - s_).count(),
+             sqrt(admf_.calc_mse(blocks_test_, nn) * 1.0 / nn)
+      );
+      if (iter_ != admf_.iter_) {
+        admf_.set_learning_rate(++iter_);
+        admf_.set_etareg(iter_);
+        return true;
+      }
     }
     return false;
   }

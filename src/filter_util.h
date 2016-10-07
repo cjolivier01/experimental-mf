@@ -134,21 +134,32 @@ class StatusStack {
 enum FilterStages {
   FILTER_STAGE_READ,
   FILTER_STAGE_PARSE,
-  FILTER_STAGE_CALC
+  FILTER_STAGE_CALC,
+  FILTER_STAGE_FLUSH
+};
+
+struct IFilter {
+  virtual bool flush(uint64_t expectedCount, size_t microsecondsSleep) = 0;
 };
 
 template<typename ObjectType = void *>
 class PipelineFilter : public tbb::filter
-                     , public StatusStack {
+                     , public StatusStack
+                     , public IFilter {
   // TODO: Do some timing, data-flow metrics (ie downstream filters waiting on data)
  protected:
   typedef ObjectType object_t;
 
  public:
 
-  PipelineFilter(tbb::filter::mode filter_mode, mf::ObjectPool<ObjectType> *source_buffer_pool)
+  PipelineFilter(tbb::filter::mode filter_mode,
+                 mf::ObjectPool<ObjectType> *source_buffer_pool)
   : tbb::filter(filter_mode)
-    , source_buffer_pool_(source_buffer_pool) {}
+    , source_buffer_pool_(source_buffer_pool)
+    , items_processed_(0)
+    , downstream_finished_(false)
+  {
+  }
 
   virtual ~PipelineFilter() {}
 
@@ -175,10 +186,60 @@ class PipelineFilter : public tbb::filter
         source_buffer_pool_->terminate();
       }
     }
+    ++items_processed_;
+    if(!res) {
+      downstream_finished_.store(true);
+    }
     return res; // Signal filter finished
   }
+
+  /**
+   * Return when downstream filters are caught up
+   * returns false if there was a problem (ie downstream filter has had an error)
+   */
+  bool flush() {
+    return flush(items_processed_.load());
+  }
+
+  void addDownstreamFilter(IFilter *f) {
+    CHECK_NOTNULL(f);
+    if(f) {
+      // should not change while running
+      CHECK_EQ(items_processed_, 0);
+      downstream_filters_.insert(f);
+    }
+  }
+
  private:
-  mf::ObjectPool<ObjectType> *source_buffer_pool_;
+  /**!
+  * \brief Return when downstream is at or past the given iteration
+  *        Not meant to be called in a high-performance loop
+  */
+  bool flush(uint64_t expectedCount, size_t microsecondsSleep = 100) {
+    if(!downstream_finished_ || downstream_filters_.empty()) {
+      for (IFilter *f : downstream_filters_) {
+        if(!f->flush(expectedCount, microsecondsSleep))  {
+          return false;
+        }
+      }
+      while(items_processed_.load() < expectedCount) {
+        if(downstream_finished_ && !downstream_filters_.empty()) {
+          return false;
+        }
+        usleep(microsecondsSleep);
+      }
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+
+ private:
+  mf::ObjectPool<ObjectType> *    source_buffer_pool_;
+  std::atomic<uint64_t>           items_processed_;
+  std::atomic<bool>               downstream_finished_;
+  std::unordered_set<IFilter *>   downstream_filters_;
 };
 
 } // namespace mf

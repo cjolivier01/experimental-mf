@@ -24,6 +24,7 @@ void MF::init() {
 
   CHECK_EQ(std::atomic<float>().is_lock_free(), true);
 
+  // TODO: This should be an aligned alloc
   //alloc
   user_array_ = (float *) malloc((nr_users_ + nr_videos_) * sizeof(float));
   memset(user_array_, 0, (nr_users_ + nr_videos_) * sizeof(float));
@@ -31,6 +32,7 @@ void MF::init() {
 
   const int pad = padding(dim_);
 
+  // TODO: This should be an aligned alloc
   theta_ = (float **) malloc((nr_users_ + nr_videos_) * sizeof(float *));
   memset(theta_, 0, (nr_users_ + nr_videos_) * sizeof(float *));
   phi_ = theta_ + nr_users_;
@@ -41,18 +43,24 @@ void MF::init() {
 #pragma omp parallel for
   for (int i = 0; i < nr_users_; i++) {
     for (int j = 0; j < dim_; j++) {
-      theta_[i][j] = gaussian(generator) * 1e-2f;
+      theta_[i][j] = gaussian(generator) * GAUSSIAN_NOISE_MULTIPLIER;
+      const float f = theta_[i][j];
+      DCHECK_EQ(mf::isFinite(theta_[i][j]), true);
     }
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_videos_; i++) {
     for (int j = 0; j < dim_; j++) {
-      phi_[i][j] = gaussian(generator) * 1e-2f;
+      const float f = phi_[i][j];
+      phi_[i][j] = gaussian(generator) * GAUSSIAN_NOISE_MULTIPLIER;
+      DCHECK_EQ(mf::isFinite(phi_[i][j]), true);
     }
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_users_ + nr_videos_; i++) {
-    user_array_[i] = gaussian(generator) * 1e-2f;
+    user_array_[i] = gaussian(generator) * GAUSSIAN_NOISE_MULTIPLIER;
+    const float f = user_array_[i];
+    DCHECK_EQ(mf::isFinite(user_array_[i]), true);
   }
 }
 
@@ -76,7 +84,7 @@ float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
       const int uid = user.uid();
 
       CHECK_LT(uid, nr_users_);
-      CHECK_EQ(mf::isFinite(user_array_[uid]), true);
+      DCHECK_EQ(mf::isFinite(user_array_[uid]), true);
 
       const int rsize = user.record_size();
       nn += rsize;
@@ -86,7 +94,7 @@ float MF::calc_mse(const mf::Blocks &blocks, int &return_ndata) const {
         const float rating = rec.rating();
 
         CHECK_LT(vid, nr_videos_);
-        CHECK_EQ(mf::isFinite(video_array_[vid]), true);
+        DCHECK_EQ(mf::isFinite(video_array_[vid]), true);
 
         const float error = rating - cblas_sdot(dim_, theta_[uid], 1, phi_[vid], 1)
                             - user_array_[uid] - video_array_[vid] - global_bias_;
@@ -352,6 +360,12 @@ void DPMF::init() {
   align_alloc(theta_, nr_users_, pad);
   align_alloc(phi_, nr_videos_, pad);
 
+  //bookkeeping
+  gcount = 0;
+  gcountu = new std::atomic<uint64_t>[nr_users_];
+  gcountv = new std::atomic<uint64_t>[nr_videos_];
+  gmutex  = new std::mutex[nr_videos_];
+
   //init
 #pragma omp parallel for
   for (int i = 0; i < nr_users_; i++) {
@@ -359,6 +373,7 @@ void DPMF::init() {
       theta_[i][j] = gaussian(generator) * 1e-2f;
       DCHECK_EQ(isFinite(theta_[i][j]), true);
     }
+    gcountu[i] = 0;
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_videos_; i++) {
@@ -366,11 +381,13 @@ void DPMF::init() {
       phi_[i][j] = gaussian(generator) * 1e-2f;
       DCHECK_EQ(isFinite(phi_[i][j]), true);
     }
+    gcountv[i] = 0;
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_users_ + nr_videos_; i++) {
     user_array_[i] = gaussian(generator) * 1e-2f;
     DCHECK_EQ(isFinite(user_array_[i]), true);
+    DCHECK_LT(user_array_[i], 10.0f);
   }
   for (int i = 0; i < 2 * dim_; i++) {
     lambda_u_[i] = 1e2;
@@ -391,11 +408,6 @@ void DPMF::init() {
     learning_rate_.store(learning_rate_.load() / ntrain_);
   }
 
-  //bookkeeping
-  gcount = 0;
-  gcountu = new uint64[nr_users_]();
-  gcountv = new std::atomic<uint64>[nr_videos_];
-  gmutex = new std::mutex[nr_videos_];
   //differentially private
   if (max_ratings_ <= 0) {
     max_ratings_ = nr_videos_;
@@ -506,7 +518,7 @@ int DPMF::sample_train_and_precompute_weight() {
             CHECK_NE(users[i], 0);
             ur_[i] = (float) ntrain_ / users[i];
             //ur_[i] = ((float) users[i]) / ntrain_;
-            CHECK_EQ(mf::isFinite(ur_[i]), true);
+            DCHECK_EQ(mf::isFinite(ur_[i]), true);
           }
         }
         for (int i = 0; i < nr_videos_; i++) {
@@ -515,7 +527,7 @@ int DPMF::sample_train_and_precompute_weight() {
             CHECK_NE(vids[i], 0);
             vr_[i] = (float) ntrain_ / vids[i];
             //vr_[i] = ((float) vids[i])/ntrain_;
-            CHECK_EQ(mf::isFinite(vr_[i]), true);
+            DCHECK_EQ(mf::isFinite(vr_[i]), true);
           }
         }
       }
@@ -548,22 +560,30 @@ void DPMF::finish_noise() {
 #pragma omp parallel for
   for (int i = 0; i < nr_users_; i++) {
     rndind = uniform_int_(generator);
-    const size_t uc = gc - gcountu[i];
+    const uint64_t uc = gc - gcountu[i];
+    DCHECK_GE(gc, gcountu[i]);
     gcountu[i] = 0;
+    DCHECK_LT(rndind + dim_, noise_size_);
     cblas_saxpy(dim_, (float)sqrt(sgld_temperature_ * learning_rate_ * uc), noise_ + rndind, 1, theta_[i], 1);
     DCHECK_EQ(isFinite(user_array_[i]), true);
-    user_array_[i] += sqrt(sgld_temperature_ * learning_rate_ * uc) * noise_[rndind + dim_];
+    const float adder = (float)sqrt(sgld_temperature_ * learning_rate_ * uc) * noise_[rndind + dim_];
+    user_array_[i] += (float)sqrt(sgld_temperature_ * learning_rate_ * uc) * noise_[rndind + dim_];
     DCHECK_EQ(isFinite(user_array_[i]), true);
+    DCHECK_LT(fabs(user_array_[i]), 10.0f);
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_videos_; i++) {
     rndind = uniform_int_(generator);
-    const size_t vc = gc - gcountv[i].load();
+    const uint64_t vc = gc - gcountv[i].load();
+    DCHECK_GE(gc, gcountv[i].load());
     gcountv[i] = 0;
+    DCHECK_LT(rndind + dim_, noise_size_);
     cblas_saxpy(dim_, (float)sqrt(sgld_temperature_ * learning_rate_ * vc), noise_ + rndind, 1, phi_[i], 1);
     DCHECK_EQ(isFinite(video_array_[i]), true);
-    video_array_[i] += sqrt(sgld_temperature_ * learning_rate_ * vc) * noise_[rndind + dim_];
+    const float adder = (float)sqrt(sgld_temperature_ * learning_rate_ * vc) * noise_[rndind + dim_];
+    video_array_[i] += (float)sqrt(sgld_temperature_ * learning_rate_ * vc) * noise_[rndind + dim_];
     DCHECK_EQ(isFinite(video_array_[i]), true);
+    DCHECK_LT(fabs(video_array_[i]), 10.0f);
   }
   gcount = 0;
 }

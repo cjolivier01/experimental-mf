@@ -15,12 +15,6 @@ class RandomMerger
     std::srand(time(NULL) * getpid());
   }
 
-  static int random_range(const int floor, const int ceiling) {
-    const int range = ceiling - floor;
-    const int rnd = floor + int((range * rand()) / (RAND_MAX + 1.0));
-    return rnd;
-  }
-
   typedef int (*get_record_t)(ifstream_t& input, Record& buffer);
 
   template<typename OutStream>
@@ -33,9 +27,15 @@ class RandomMerger
       return EINVAL;
     }
     int rc = 0;
+    size_t lastCount = 0;
     Record record;
+    std::default_random_engine generator(std::chrono::system_clock::now().time_since_epoch().count());
+    std::uniform_int_distribution<int> randomFile(0, (int)files.size());
     while(!rc && !files.empty()) {
-      const int fileNo = files.size() > 1 ? random_range(0, files.size() - 1) : 0;
+      if(files.size() == 1) {
+        ++lastCount; // make sure we aren't getting a large # of items from the last file
+      }
+      const int fileNo = files.size() > 1 ? randomFile(generator) : 0;
       ifstream_t& input = *files[fileNo];
       rc = get_next(input, record);
       if(!rc) {
@@ -50,6 +50,7 @@ class RandomMerger
         }
       }
     }
+    std::cout << lastCount << " items from last file\n" << std::flush;
     return rc;
   }
 

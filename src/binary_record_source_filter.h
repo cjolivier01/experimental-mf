@@ -16,7 +16,8 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
  public:
   BinaryRecordSourceFilter(const size_t bufferCount,
                            dmlc::SeekStream *fr,
-                           mf::perf::TimingInstrument *timing_ref)
+                           mf::perf::TimingInstrument *timing_ref
+                           )
     : mf::ObjectPool<std::vector<char> >(bufferCount)
       , PipelineFilter<>(serial_in_order, NULL)
       , fr_(fr)
