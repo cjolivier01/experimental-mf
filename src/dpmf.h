@@ -42,7 +42,7 @@ class SgldFilter : public PipelineFilter<mf::Block>
   SgldFilter(DPMF &dpmf,
              mf::ObjectPool<mf::Block> &free_block_pool,
              mf::perf::TimingInstrument *timing)
-    : PipelineFilter(serial_in_order /*parallel*/, &free_block_pool)
+    : PipelineFilter(parallel, &free_block_pool)
       , dpmf_(dpmf)
       , timing_(timing)
       , max_noise_(0.0f) {
