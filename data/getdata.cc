@@ -13,7 +13,7 @@
 #include "blocks.pb.h"
 
 #if 1 && !defined(NDEBUG)
-#define DEFAULT_MAX_RECORDS       ((uint64_t)(1e6))
+#define DEFAULT_MAX_RECORDS       ((uint64_t)(1e7))
 #else
 #define DEFAULT_MAX_RECORDS       ((uint64_t)(1e7))
 #endif
@@ -48,15 +48,15 @@ static int read_raw(IFSTREAM_T& ins, std::vector<Tuple>& data, size_t maxRecords
   std::vector<std::string> tokens;
   tokenize(line, " ,\t", tokens);
   const size_t nn = !tokens.empty() ? atol((*tokens.rbegin()).c_str()) : 0;
-  data.reserve(nn);
+  data.reserve(std::min(maxRecords, nn));
   while(std::getline(ins, line) && data.size() < maxRecords) {
     tokens.clear();
     tokens.reserve(5);
     tokenize(line, " ,\t", tokens);
     if(tokens.size() >= 3) {
       data.push_back(std::make_tuple(
-        atol(tokens[0].c_str()),
         atol(tokens[1].c_str()),
+        atol(tokens[0].c_str()),
         atol(tokens[2].c_str()))
       );
     }
@@ -240,9 +240,11 @@ static int get_message(const char* read, const char* write, const RangeConverter
             }
           } else {
             rc = errno;
+            LOG(ERROR) << "Error: " << strerror(rc) << std::endl << std::flush;
           }
         } else {
-          unlink(write);
+          LOG(ERROR) << "Error: " << strerror(rc) << std::endl << std::flush;
+          //unlink(write);
         }
         google::protobuf::ShutdownProtobufLibrary();
       } else {
@@ -461,6 +463,9 @@ int main(int argc, char** argv) {
       }
       std::cout << "Process time: " << (mf::perf::getTickCount() - startTime) << " ms" << std::endl;
     }
+  }
+  if(rc) {
+    std::cerr << "Error: " << strerror(rc) << std::endl << std::flush;
   }
   return rc;
 }
