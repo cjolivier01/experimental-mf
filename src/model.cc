@@ -432,17 +432,17 @@ void DPMF::block_count(int *users, int *vids, mf::Block *bk) {
   for (int i = 0; i < bk->user_size(); i++) {
     const mf::User &user = bk->user(i);
     const int uid = user.uid();
-    if(!uid) {
-      std::cerr << "uid = 0" << std::endl;
-    }
+//    if(!uid) {
+//      std::cerr << "uid = 0" << std::endl;
+//    }
     CHECK_LT(uid, nr_users_);
     const int size = user.record_size();
     for (int j = 0; j < size; j++) {
       const mf::User_Record &rec = user.record(j);
       const int vid = rec.vid();
-      if(!vid) {
-        std::cerr << "vid = 0" << std::endl;
-      }
+//      if(!vid) {
+//        std::cerr << "vid = 0" << std::endl;
+//      }
       CHECK_LT(vid, nr_videos_);
       ++users[uid];
       ++vids[vid];
