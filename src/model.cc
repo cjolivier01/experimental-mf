@@ -44,14 +44,12 @@ void MF::init() {
   for (int i = 0; i < nr_users_; i++) {
     for (int j = 0; j < dim_; j++) {
       theta_[i][j] = gaussian(generator) * GAUSSIAN_NOISE_MULTIPLIER;
-      const float f = theta_[i][j];
       DCHECK_EQ(mf::isFinite(theta_[i][j]), true);
     }
   }
 #pragma omp parallel for
   for (int i = 0; i < nr_videos_; i++) {
     for (int j = 0; j < dim_; j++) {
-      const float f = phi_[i][j];
       phi_[i][j] = gaussian(generator) * GAUSSIAN_NOISE_MULTIPLIER;
       DCHECK_EQ(mf::isFinite(phi_[i][j]), true);
     }
@@ -59,7 +57,6 @@ void MF::init() {
 #pragma omp parallel for
   for (int i = 0; i < nr_users_ + nr_videos_; i++) {
     user_array_[i] = gaussian(generator) * GAUSSIAN_NOISE_MULTIPLIER;
-    const float f = user_array_[i];
     DCHECK_EQ(mf::isFinite(user_array_[i]), true);
   }
 }
@@ -570,7 +567,6 @@ void DPMF::finish_noise() {
     DCHECK_LT(rndind + dim_, noise_size_);
     cblas_saxpy(dim_, (float)sqrt(sgld_temperature_ * learning_rate_ * uc), noise_ + rndind, 1, theta_[i], 1);
     DCHECK_EQ(isFinite(user_array_[i]), true);
-    const float adder = (float)sqrt(sgld_temperature_ * learning_rate_ * uc) * noise_[rndind + dim_];
     user_array_[i] += (float)sqrt(sgld_temperature_ * learning_rate_ * uc) * noise_[rndind + dim_];
     DCHECK_EQ(isFinite(user_array_[i]), true);
     DCHECK_LT(fabs(user_array_[i]), 10.0f);
@@ -584,7 +580,6 @@ void DPMF::finish_noise() {
     DCHECK_LT(rndind + dim_, noise_size_);
     cblas_saxpy(dim_, (float)sqrt(sgld_temperature_ * learning_rate_ * vc), noise_ + rndind, 1, phi_[i], 1);
     DCHECK_EQ(isFinite(video_array_[i]), true);
-    const float adder = (float)sqrt(sgld_temperature_ * learning_rate_ * vc) * noise_[rndind + dim_];
     video_array_[i] += (float)sqrt(sgld_temperature_ * learning_rate_ * vc) * noise_[rndind + dim_];
     DCHECK_EQ(isFinite(video_array_[i]), true);
     DCHECK_LT(fabs(video_array_[i]), 10.0f);

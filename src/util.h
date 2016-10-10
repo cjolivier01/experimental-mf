@@ -284,6 +284,8 @@ inline bool isNan(const float &f) {
 
 #if 1 && defined(__linux__)
 
+// Using a futex shaves nearly a second off of dpmf netflix calculation
+// (10.9s -> 10.1s) per iteration
 class futex {
  public:
   futex() : lock_val_(0) {}
