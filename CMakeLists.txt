@@ -31,7 +31,21 @@ if(MKL_FOUND)
 endif()
 
 # --[ TBB
-find_package(TBB)
+if(NOT FORCE_SYSTEM_TBB)
+  if(EXISTS ${PROJECT_SOURCE_DIR}/tbb/CMakeLists.txt)
+    #set(TBB_BUILD_SHARED OFF)
+    set(TBB_BUILD_STATIC OFF)
+    add_subdirectory(tbb)
+    set(TBB_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/tbb/include)
+    set(TBB_LIB_DIR ${CMAKE_OUTPUT_DIR})
+    set(TBB_LIBRARIES tbb tbbmalloc)
+    set(TBB_FOUND ON)
+  endif()
+endif()
+
+if(NOT TBB_FOUND)
+  find_package(TBB)
+endif()
 
 if(TBB_FOUND)
   include_directories(${TBB_INCLUDE_DIR})
