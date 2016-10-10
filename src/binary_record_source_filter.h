@@ -7,10 +7,14 @@ namespace mf
 {
 
 /**
- * BinaryRecordSourceFilter
- *
+ *  ___  _                         ___                        _  ___                           ___  _  _  _
+ * | _ )(_) _ _   __ _  _ _  _  _ | _ \ ___  __  ___  _ _  __| |/ __| ___  _  _  _ _  __  ___ | __|(_)| || |_  ___  _ _
+ * | _ \| || ' \ / _` || '_|| || ||   // -_)/ _|/ _ \| '_|/ _` |\__ \/ _ \| || || '_|/ _|/ -_)| _| | || ||  _|/ -_)| '_|
+ * |___/|_||_||_|\__,_||_|   \_, ||_|_\\___|\__|\___/|_|  \__,_||___/\___/ \_,_||_|  \__|\___||_|  |_||_| \__|\___||_|
+ *                           |__/
  * Pass binary records from source to tbb pipeline
  */
+
 class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
                                   public PipelineFilter<> {
  public:

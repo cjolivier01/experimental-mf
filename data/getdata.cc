@@ -178,36 +178,38 @@ static int get_message(const char* read, const char* write, const RangeConverter
         std::string uncompressed_buffer;
         while (std::getline(ins, buf)) {
           const size_t len = buf.length();
-          if (buf[len - 1] == ':') {
-            if (ii % block_size == 0) {
-              if (block.user_size() > 0) {
-                if (block.SerializeToString(&uncompressed_buffer)) {
-                  const uint32 uncompressed_size = uncompressed_buffer.size();
-                  if(!output.write((const char *)&uncompressed_size, sizeof(uncompressed_size)).fail()) {
-                    if(output.write(uncompressed_buffer.c_str(), uncompressed_buffer.size()).fail())
-                    {
+          if(len) {
+            CHECK_NE(len, 0);
+            if (buf[len - 1] == ':') {
+              if (ii % block_size == 0) {
+                if (block.user_size() > 0) {
+                  if (block.SerializeToString(&uncompressed_buffer)) {
+                    const uint32 uncompressed_size = uncompressed_buffer.size();
+                    if (!output.write((const char *) &uncompressed_size, sizeof(uncompressed_size)).fail()) {
+                      if (output.write(uncompressed_buffer.c_str(), uncompressed_buffer.size()).fail()) {
+                        rc = errno;
+                        break;
+                      }
+                    } else {
                       rc = errno;
                       break;
                     }
                   } else {
-                    rc = errno;
+                    LOG(ERROR) << "Error serializing block to stream";
+                    rc = EINVAL;
                     break;
                   }
-                } else {
-                  LOG(ERROR) << "Error serializing block to stream";
-                  rc = EINVAL;
-                  break;
                 }
+                block.Clear();
+                user = block.add_user();
+              } else {
+                user = block.add_user();
               }
-              block.Clear();
-              user = block.add_user();
-            } else {
-              user = block.add_user();
+              ++ii;
+              user->set_uid(stoi(buf));
+              continue;
             }
-            ++ii;
-            user->set_uid(stoi(buf));
-            continue;
-          }
+          } // blank line
           if (!user) {
             LOG(ERROR) << "Found data before user record: \"" << buf.c_str() << "\"";
             break;

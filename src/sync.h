@@ -15,6 +15,16 @@
 namespace mf
 {
 
+/**
+ *   _____  _                            _   ____   _      _              _
+ *  / ____|| |                          | | / __ \ | |    (_)            | |
+ * | (___  | |__    __ _  _ __  ___   __| || |  | || |__   _   ___   ___ | |_
+ *  \___ \ | '_ \  / _` || '__|/ _ \ / _` || |  | || '_ \ | | / _ \ / __|| __|
+ *  ____) || | | || (_| || |  |  __/| (_| || |__| || |_) || ||  __/| (__ | |_
+ * |_____/ |_| |_| \__,_||_|   \___| \__,_| \____/ |_.__/ | | \___| \___| \__|
+ *                                                       _/ |
+ *                                                      |__/
+ */
 template<class ObjectType>
 class SharedObject
 {
@@ -55,11 +65,18 @@ class SharedObject
 };
 
 /**
- * semaphore
+ *                                      _
+ *                                     | |
+ *  ___   ___  _ __ ___    __ _  _ __  | |__    ___   _ __  ___
+ * / __| / _ \| '_ ` _ \  / _` || '_ \ | '_ \  / _ \ | '__|/ _ \
+ * \__ \|  __/| | | | | || (_| || |_) || | | || (_) || |  |  __/
+ * |___/ \___||_| |_| |_| \__,_|| .__/ |_| |_| \___/ |_|   \___|
+ *                              | |
  * Simple semaphore which does not make any attempt to
  * maintain lock/release order
  */
 
+#ifdef __linux__
 class semaphore
 {
   sem_t sem_;
@@ -124,7 +141,8 @@ class semaphore
 /* Get current value of SEM and store it in *SVAL.  */
 //  extern int sem_getvalue (sem_t *__restrict __sem, int *__restrict __sval)
 };
-
+typedef semaphore Semaphore;
+#else
 class WeakSemaphore
 {
  public:
@@ -157,9 +175,17 @@ class WeakSemaphore
   std::condition_variable cv_;
   std::atomic<size_t> count_;
 };
+typedef WeakSemaphore Semaphore;
+#endif //__linux__
 
 /**
- * MultiEvent
+ *  __  __         _  _    _  ______                   _
+ * |  \/  |       | || |  (_)|  ____|                 | |
+ * | \  / | _   _ | || |_  _ | |__ __   __ ___  _ __  | |_
+ * | |\/| || | | || || __|| ||  __|\ \ / // _ \| '_ \ | __|
+ * | |  | || |_| || || |_ | || |____\ V /|  __/| | | || |_
+ * |_|  |_| \__,_||_| \__||_||______|\_/  \___||_| |_| \__|
+ *
  *
  * Windows-like event object (ie also allows manual reset event)
  */
@@ -275,6 +301,16 @@ class MultiEvent : public SharedObject<MultiEvent>
   }
 };
 
+/**
+ *  _______  _                            _   _____
+ * |__   __|| |                          | | / ____|
+ *    | |   | |__   _ __  ___   __ _   __| || |  __  _ __  ___   _   _  _ __
+ *    | |   | '_ \ | '__|/ _ \ / _` | / _` || | |_ || '__|/ _ \ | | | || '_ \
+ *    | |   | | | || |  |  __/| (_| || (_| || |__| || |  | (_) || |_| || |_) |
+ *    |_|   |_| |_||_|   \___| \__,_| \__,_| \_____||_|   \___/  \__,_|| .__/
+ *                                                                     | |
+ *                                                                     |_|
+ */
 class ThreadGroup : public SharedObject<ThreadGroup>
 {
   typedef std::shared_timed_mutex SharedMutex;
@@ -291,6 +327,18 @@ class ThreadGroup : public SharedObject<ThreadGroup>
   };
 
  public:
+
+
+  /**
+   *  __  __                                        _  _______  _                            _
+   * |  \/  |                                      | ||__   __|| |                          | |
+   * | \  / |  __ _  _ __    __ _   __ _   ___   __| |   | |   | |__   _ __  ___   __ _   __| |
+   * | |\/| | / _` || '_ \  / _` | / _` | / _ \ / _` |   | |   | '_ \ | '__|/ _ \ / _` | / _` |
+   * | |  | || (_| || | | || (_| || (_| ||  __/| (_| |   | |   | | | || |  |  __/| (_| || (_| |
+   * |_|  |_| \__,_||_| |_| \__,_| \__, | \___| \__,_|   |_|   |_| |_||_|   \___| \__,_| \__,_|
+   *                                __/ |
+   *                               |___/
+   */
   class ManagedThread : public SharedObject<ManagedThread>
   {
     typedef std::thread Thread;

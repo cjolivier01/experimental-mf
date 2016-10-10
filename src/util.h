@@ -53,6 +53,13 @@ namespace mf
 constexpr size_t STREAM_BUFFER_SIZE = (1 << 20);
 
 /**
+ *  _____              _         _____  _
+ * |  __ \            | |       / ____|| |
+ * | |  | | _ __ ___  | |  ___ | (___  | |_  _ __  ___   __ _  _ __ ___
+ * | |  | || '_ ` _ \ | | / __| \___ \ | __|| '__|/ _ \ / _` || '_ ` _ \
+ * | |__| || | | | | || || (__  ____) || |_ | |  |  __/| (_| || | | | | |
+ * |_____/ |_| |_| |_||_| \___||_____/  \__||_|   \___| \__,_||_| |_| |_|
+ *
  * Wrap simple R/W dmlc stream creation pattern to programmatically
  * match ifstream/ofstream creation pattern
  */
@@ -80,6 +87,16 @@ class DmlcStream : public StreamType
   }
 };
 
+/**
+ *  _____              _         ____          _     _____  _
+ * |  __ \            | |       / __ \        | |   / ____|| |
+ * | |  | | _ __ ___  | |  ___ | |  | | _   _ | |_ | (___  | |_  _ __  ___   __ _  _ __ ___
+ * | |  | || '_ ` _ \ | | / __|| |  | || | | || __| \___ \ | __|| '__|/ _ \ / _` || '_ ` _ \
+ * | |__| || | | | | || || (__ | |__| || |_| || |_  ____) || |_ | |  |  __/| (_| || | | | | |
+ * |_____/ |_| |_| |_||_| \___| \____/  \__,_| \__||_____/  \__||_|   \___| \__,_||_| |_| |_|
+ *
+ *
+ */
 template<typename StreamType>
 class DmlcOutStream : public DmlcStream<StreamType, true>
 {
@@ -91,8 +108,8 @@ class DmlcOutStream : public DmlcStream<StreamType, true>
 };
 
 
-typedef DmlcStream<dmlc::istream, false> dmlc_istream;
-typedef DmlcOutStream<dmlc::ostream> dmlc_ostream;
+typedef DmlcStream<dmlc::istream, false>  dmlc_istream;
+typedef DmlcOutStream<dmlc::ostream>      dmlc_ostream;
 
 typedef struct
 {
@@ -284,6 +301,16 @@ inline bool isNan(const float &f) {
 
 #if 1 && defined(__linux__)
 
+/**
+ *   __         _
+ *  / _|       | |
+ * | |_  _   _ | |_  ___ __  __
+ * |  _|| | | || __|/ _ \\ \/ /
+ * | |  | |_| || |_|  __/ >  <
+ * |_|   \__,_| \__|\___|/_/\_\
+ *
+ *
+ */
 // Using a futex shaves nearly a second off of dpmf netflix calculation
 // (10.9s -> 10.1s) per iteration
 class futex {

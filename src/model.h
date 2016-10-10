@@ -16,7 +16,6 @@ namespace mf
  * |_|  |_||_|
  *
  */
-
 class MF
 {
  public:
