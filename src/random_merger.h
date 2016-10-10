@@ -30,12 +30,13 @@ class RandomMerger
     size_t lastCount = 0;
     Record record;
     std::default_random_engine generator(std::chrono::system_clock::now().time_since_epoch().count());
-    std::uniform_int_distribution<int> randomFile(0, (int)files.size() - 1);
+
+    std::unique_ptr< std::uniform_int_distribution<int> > randomFile = getDist(0, (int)files.size() - 1);
     while(!rc && !files.empty()) {
       if(files.size() == 1) {
         ++lastCount; // make sure we aren't getting a large # of items from the last file
       }
-      const int fileNo = files.size() > 1 ? randomFile(generator) : 0;
+      const int fileNo = files.size() > 1 ? (*randomFile)(generator) : 0;
       ifstream_t& input = *files[fileNo];
       rc = get_next(input, record);
       if(!rc) {
@@ -47,6 +48,7 @@ class RandomMerger
         }
         if (input.eof()) {
           files.erase(files.begin() + fileNo);
+          randomFile = getDist(0, (int)files.size() - 1);
         }
       }
     }
@@ -92,6 +94,11 @@ class RandomMerger
     return rc;
   }
  private:
+  static std::unique_ptr< std::uniform_int_distribution<int> > getDist(int lo, int hi) {
+    return std::unique_ptr< std::uniform_int_distribution<int> >(
+      new std::uniform_int_distribution<int>(lo, hi)
+    );
+  }
 };
 
 
