@@ -62,13 +62,10 @@ static int run(MF& mf) {
       if (!rc) {
         std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(mf.train_data_.c_str()));
         if (f.get()) {
-          mf::perf::TimingInstrument timing;
-          SgdReadFilter read_f(mf, f.get(), blocks_test, &timing);
-          ParseFilter parse_f(mf.data_in_fly_, read_f, &timing);
-          SgdFilter sgd_f(mf, parse_f, &timing);
-          read_f.addDownstreamFilter(&parse_f);
-          parse_f.addDownstreamFilter(&sgd_f);
-          tbb::pipeline p;
+          SgdReadFilter read_f(mf, f.get(), blocks_test);
+          ParseFilter parse_f(mf.data_in_fly_, read_f);
+          SgdFilter sgd_f(mf, parse_f);
+          Pipeline p;
           p.add_filter(read_f);
           p.add_filter(parse_f);
           p.add_filter(sgd_f);
@@ -79,7 +76,7 @@ static int run(MF& mf) {
           setOnError(sgd_f, rc);
           setOnError(parse_f, rc);
           setOnError(read_f, rc);
-          timing.print();
+          p.timing_.print();
         } else {
           rc = errno;
         }
@@ -106,13 +103,10 @@ static int run(DPMF& dpmf) {
       if (!rc) {
         std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(dpmf.train_data_.c_str()));
         if (f.get()) {
-          mf::perf::TimingInstrument timing;
-          SgldReadFilter read_f(dpmf, f.get(), blocks_test, &timing);
-          ParseFilter parse_f(dpmf.data_in_fly_, read_f, &timing);
-          SgldFilter sgld_f(dpmf, parse_f, &timing);
-          read_f.addDownstreamFilter(&parse_f);
-          parse_f.addDownstreamFilter(&sgld_f);
-          tbb::pipeline p;
+          SgldReadFilter read_f(dpmf, f.get(), blocks_test);
+          ParseFilter parse_f(dpmf.data_in_fly_, read_f);
+          SgldFilter sgld_f(dpmf, parse_f);
+          Pipeline p;
           p.add_filter(read_f);
           p.add_filter(parse_f);
           p.add_filter(sgld_f);
@@ -127,7 +121,7 @@ static int run(DPMF& dpmf) {
           setOnError(sgld_f, rc);
           setOnError(parse_f, rc);
           setOnError(read_f, rc);
-          timing.print();
+          p.timing_.print();
         } else {
           rc = errno;
         }
@@ -152,13 +146,10 @@ static int run(AdaptRegMF& admf) {
       if (!rc) {
         std::unique_ptr<dmlc::SeekStream> f(dmlc::SeekStream::CreateForRead(admf.train_data_.c_str()));
         if (f.get()) {
-          mf::perf::TimingInstrument timing;
-          AdRegReadFilter read_f(admf, f.get(), blocks_test, &timing);
-          ParseFilter parse_f(admf.data_in_fly_, read_f, &timing);
-          AdRegFilter admf_f(admf, parse_f, &timing);
-          read_f.addDownstreamFilter(&parse_f);
-          parse_f.addDownstreamFilter(&admf_f);
-          tbb::pipeline p;
+          AdRegReadFilter read_f(admf, f.get(), blocks_test);
+          ParseFilter parse_f(admf.data_in_fly_, read_f);
+          AdRegFilter admf_f(admf, parse_f);
+          Pipeline p;
           p.add_filter(read_f);
           p.add_filter(parse_f);
           p.add_filter(admf_f);
@@ -168,7 +159,7 @@ static int run(AdaptRegMF& admf) {
           setOnError(admf_f, rc);
           setOnError(parse_f, rc);
           setOnError(read_f, rc);
-          timing.print();
+          p.timing_.print();
         } else {
           rc = errno;
           CHECK_NE(rc, 0);

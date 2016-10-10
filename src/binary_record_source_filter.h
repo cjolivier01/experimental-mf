@@ -15,15 +15,13 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
                                   public PipelineFilter<> {
  public:
   BinaryRecordSourceFilter(const size_t bufferCount,
-                           dmlc::SeekStream *fr,
-                           mf::perf::TimingInstrument *timing_ref
+                           dmlc::SeekStream *fr
                            )
     : mf::ObjectPool<std::vector<char> >(bufferCount)
       , PipelineFilter<>(serial_in_order, NULL)
       , fr_(fr)
       , stream_(new dmlc::istream(fr, STREAM_BUFFER_SIZE))
-      , pass_(0)
-      , timing_ref_(timing_ref) {
+      , pass_(0) {
   }
 
   /**
@@ -40,7 +38,7 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
       s_ = Time::now();
       in_time_ = in_time_.zero();
     }
-    mf::perf::TimingItem inFunc(timing_ref_, FILTER_STAGE_READ, "FILTER_STAGE_READ");
+    mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_READ, "FILTER_STAGE_READ");
     std::vector<char> *pbuffer = allocateObject();
     if (pbuffer) {
       int isize = 0;
@@ -87,8 +85,6 @@ class BinaryRecordSourceFilter  : public mf::ObjectPool< std::vector<char> >,
   std::atomic<unsigned long>      pass_;
   std::chrono::time_point<Time>   s_;
   std::chrono::duration<float>    in_time_;
- public:
-  mf::perf::TimingInstrument * timing_ref_;
 };
 
 

@@ -13,9 +13,8 @@ class AdRegReadFilter : public BinaryRecordSourceFilter
  public:
   AdRegReadFilter(AdaptRegMF &admf,
                   dmlc::SeekStream *fr,
-                  const mf::Blocks &blocks_test,
-                  mf::perf::TimingInstrument *timing)
-    : BinaryRecordSourceFilter(admf.data_in_fly_ * 10U, fr, timing)
+                  const mf::Blocks &blocks_test)
+    : BinaryRecordSourceFilter(admf.data_in_fly_ * 10U, fr)
       , admf_(admf)
       , blocks_test_(blocks_test)
       , iter_(1)  {
@@ -48,12 +47,11 @@ class AdRegFilter : public PipelineFilter<mf::Block>
 {
 
  public:
-  AdRegFilter(AdaptRegMF &model, mf::ObjectPool<mf::Block> &free_block_pool, mf::perf::TimingInstrument *timing)
+  AdRegFilter(AdaptRegMF &model, mf::ObjectPool<mf::Block> &free_block_pool)
     : PipelineFilter(parallel, &free_block_pool)
       , admf_(model)
-      , free_block_pool_(free_block_pool)
-      , timing_(timing)
-  {}
+      , free_block_pool_(free_block_pool) {
+  }
 
   void *execute(mf::Block *block) {
     if(block) {
@@ -107,7 +105,6 @@ class AdRegFilter : public PipelineFilter<mf::Block>
  private:
   AdaptRegMF&                     admf_;
   mf::ObjectPool<mf::Block>&      free_block_pool_;
-  mf::perf::TimingInstrument * timing_;
 };
 
 } // namespace mf

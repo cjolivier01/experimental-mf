@@ -12,8 +12,8 @@ class SgldReadFilter : public BinaryRecordSourceFilter
 {
  public:
 
-  SgldReadFilter(DPMF &dpmf, dmlc::SeekStream *fr, const mf::Blocks& blocks_test, mf::perf::TimingInstrument *timing)
-    : BinaryRecordSourceFilter(dpmf.data_in_fly_ * 10, fr, timing)
+  SgldReadFilter(DPMF &dpmf, dmlc::SeekStream *fr, const mf::Blocks& blocks_test)
+    : BinaryRecordSourceFilter(dpmf.data_in_fly_ * 10, fr)
       , dpmf_(dpmf)
       , blocks_test_(blocks_test)
       , iter_(1)  {
@@ -39,17 +39,9 @@ class SgldReadFilter : public BinaryRecordSourceFilter
 class SgldFilter : public PipelineFilter<mf::Block>
 {
  public:
-  SgldFilter(DPMF &dpmf,
-             mf::ObjectPool<mf::Block> &free_block_pool,
-             mf::perf::TimingInstrument *timing)
+  SgldFilter(DPMF &dpmf, mf::ObjectPool<mf::Block> &free_block_pool)
     : PipelineFilter(parallel, &free_block_pool)
-      , dpmf_(dpmf)
-      , timing_(timing)
-      , max_noise_(0.0f) {
-    seen_users_ = new std::atomic<size_t>[dpmf_.nr_users_];
-    memset(seen_users_, 0, dpmf_.nr_users_ * sizeof(seen_users_[0]));
-    seen_vid_ = new std::atomic<size_t>[dpmf_.nr_videos_];
-    memset(seen_vid_, 0, dpmf_.nr_videos_ * sizeof(seen_vid_[0]));
+      , dpmf_(dpmf) {
   }
 
   void checkNoise() {
@@ -85,7 +77,6 @@ class SgldFilter : public PipelineFilter<mf::Block>
       for (int i = 0; i < bk->user_size(); i++) {
         const mf::User &user = bk->user(i);
         const int uid = user.uid();
-        const size_t seenCount = ++seen_users_[uid];
 
         const float entryUser = dpmf_.user_array_[uid];
 
@@ -103,8 +94,6 @@ class SgldFilter : public PipelineFilter<mf::Block>
           const mf::User_Record &rec = user.record(j);
           const int vid = rec.vid();
 
-          const size_t seenVid = ++seen_vid_[vid];
-
           const float preUser0 = dpmf_.user_array_[uid];
           const float preVid0 = dpmf_.video_array_[vid];
 
@@ -113,6 +102,7 @@ class SgldFilter : public PipelineFilter<mf::Block>
 
           const float rating = rec.rating();
 
+          // TODO: Try a futex
           dpmf_.gmutex[vid].lock();
           const uint64_t gc = dpmf_.gcount.fetch_add(1);
           DCHECK_GE(gc, dpmf_.gcountv[vid].load());
@@ -135,9 +125,6 @@ class SgldFilter : public PipelineFilter<mf::Block>
                       1,
                       dpmf_.phi_[vid],
                       1);
-
-          max_noise_ = std::max(max_noise_, (float)fabs(dpmf_.noise_[thetaind + dpmf_.dim_]));
-          max_noise_ = std::max(max_noise_, (float)fabs(dpmf_.noise_[phiind + dpmf_.dim_]));
 
           DCHECK_LT(thetaind + dpmf_.dim_, dpmf_.noise_size_); // need to modulus it, i guess, or re-randomize it
           DCHECK_LT(phiind + dpmf_.dim_, dpmf_.noise_size_);
@@ -201,10 +188,6 @@ class SgldFilter : public PipelineFilter<mf::Block>
 
  private:
   DPMF&                        dpmf_;
-  mf::perf::TimingInstrument * timing_;
-  // TODO: remove seen_users_, seen_vid_
-  std::atomic<size_t>        * seen_users_, *seen_vid_;
-  float max_noise_;
 };
 
 } // namespace mf

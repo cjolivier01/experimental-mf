@@ -140,13 +140,14 @@ enum FilterStages {
 
 struct IFilter {
   virtual bool flush(uint64_t expectedCount, size_t microsecondsSleep) = 0;
+  virtual void onUpstreamError() = 0;
+  virtual void addDownstreamFilter(IFilter *f) = 0;
 };
 
 template<typename ObjectType = void *>
 class PipelineFilter : public tbb::filter
                      , public StatusStack
                      , public IFilter {
-  // TODO: Do some timing, data-flow metrics (ie downstream filters waiting on data)
  protected:
   typedef ObjectType object_t;
 
@@ -158,37 +159,44 @@ class PipelineFilter : public tbb::filter
     , source_buffer_pool_(source_buffer_pool)
     , items_processed_(0)
     , downstream_finished_(false)
+    , upstream_error_(false)
   {
   }
 
   virtual ~PipelineFilter() {}
 
+  void setTiming(perf::TimingInstrument *timing) {
+    timing_ = timing;
+  }
+
   virtual void *execute(object_t *) = 0;
 
   virtual void *operator()(void *v) {
-    bool stop = false;
-    void *res = NULL;
-    ObjectType *val = reinterpret_cast<ObjectType *>(v);
-    try {
-      res = execute(val);
-    } catch(std::runtime_error& e) {
-      addStatus(EXECUTION_EXCEPTION, e.what());
-      stop = true;
-    } catch(...) {
-      addStatus(UNHANDLED_EXCEPTION, "Unhandled exception");
-      stop = true;
-    }
-    if(source_buffer_pool_) {
-      if(val) {
-        source_buffer_pool_->freeObject(val);
+    void *res = nullptr;
+    if(!upstream_error_) {
+      bool stop = false;
+      ObjectType *val = reinterpret_cast<ObjectType *>(v);
+      try {
+        res = execute(val);
+      } catch (std::runtime_error &e) {
+        addStatus(EXECUTION_EXCEPTION, e.what());
+        stop = true;
+      } catch (...) {
+        addStatus(UNHANDLED_EXCEPTION, "Unhandled exception");
+        stop = true;
       }
-      if(stop) {
-        source_buffer_pool_->terminate();
+      if (source_buffer_pool_) {
+        if (val) {
+          source_buffer_pool_->freeObject(val);
+        }
+        if (stop) {
+          source_buffer_pool_->terminate();
+        }
       }
-    }
-    ++items_processed_;
-    if(!res) {
-      downstream_finished_.store(true);
+      ++items_processed_;
+      if (!res) {
+        downstream_finished_.store(true);
+      }
     }
     return res; // Signal filter finished
   }
@@ -216,30 +224,72 @@ class PipelineFilter : public tbb::filter
   *        Not meant to be called in a high-performance loop
   */
   bool flush(uint64_t expectedCount, size_t microsecondsSleep = 100) {
-    if(!downstream_finished_ || downstream_filters_.empty()) {
-      for (IFilter *f : downstream_filters_) {
-        if(!f->flush(expectedCount, microsecondsSleep))  {
-          return false;
+    if (!upstream_error_) {
+      if (!downstream_finished_ || downstream_filters_.empty()) {
+        for (IFilter *f : downstream_filters_) {
+          if (!f->flush(expectedCount, microsecondsSleep)) {
+            return false;
+          }
         }
-      }
-      while(items_processed_.load() < expectedCount) {
-        if(downstream_finished_ && !downstream_filters_.empty()) {
-          return false;
+        while (items_processed_.load() < expectedCount) {
+          if (upstream_error_ || (downstream_finished_ && !downstream_filters_.empty())) {
+            return false;
+          }
+          usleep(microsecondsSleep);
         }
-        usleep(microsecondsSleep);
+        return true;
       }
-      return true;
-    } else {
-      return false;
     }
+    return false;
   }
 
+  void onUpstreamError() {
+    upstream_error_ = true;
+    for (IFilter *f : downstream_filters_) {
+      f->onUpstreamError();
+    }
+  }
 
  private:
   mf::ObjectPool<ObjectType> *    source_buffer_pool_;
   std::atomic<uint64_t>           items_processed_;
   std::atomic<bool>               downstream_finished_;
+  std::atomic<bool>               upstream_error_;
   std::unordered_set<IFilter *>   downstream_filters_;
+ protected:
+  perf::TimingInstrument *        timing_;
+};
+
+
+class Pipeline : protected tbb::pipeline {
+ public:
+  Pipeline()
+    : last_filter_(nullptr) {}
+
+  virtual ~Pipeline() {}
+
+  using tbb::pipeline::run;
+
+  template<typename ObjectType>
+  void add_filter(PipelineFilter<ObjectType>& filter) {
+    if(last_filter_)  {
+      last_filter_->addDownstreamFilter(&filter);
+    }
+    last_filter_ = &filter;
+    filter.setTiming(&timing_);
+    tbb::pipeline::add_filter(filter);
+  }
+
+  void clear() {
+    last_filter_ = nullptr;
+    tbb::pipeline::clear();
+  }
+
+ public:
+  perf::TimingInstrument    timing_;
+
+ private:
+  IFilter *                 last_filter_;
 };
 
 } // namespace mf

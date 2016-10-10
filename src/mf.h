@@ -19,8 +19,8 @@ class SgdReadFilter : public BinaryRecordSourceFilter
 {
 
  public:
-  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test, mf::perf::TimingInstrument *timing)
-  : BinaryRecordSourceFilter(mf.data_in_fly_ * 10, fr, timing)
+  SgdReadFilter(MF &mf, dmlc::SeekStream *fr, const mf::Blocks &blocks_test)
+  : BinaryRecordSourceFilter(mf.data_in_fly_ * 10, fr)
     , mf_(mf)
     , iter_(1)
     , blocks_test_(blocks_test)
@@ -58,11 +58,9 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
 
  public:
   ParseFilter(size_t fly,
-              mf::ObjectPool< std::vector<char> > &free_buffer_pool,
-              mf::perf::TimingInstrument *timing)
+              mf::ObjectPool< std::vector<char> > &free_buffer_pool)
     : mf::ObjectPool<mf::Block>(fly * 10)
       , PipelineFilter(parallel, &free_buffer_pool)
-      , timing_(timing)
   {
   }
 
@@ -88,18 +86,16 @@ class ParseFilter : public mf::ObjectPool<mf::Block>,
   }
 
  private:
-  char                                pad[CACHE_LINE_SIZE];
-  mf::perf::TimingInstrument *     timing_;
+  char                            pad[CACHE_LINE_SIZE];
 };
 
 class SgdFilter : public PipelineFilter<mf::Block>
 {
 
  public:
-  SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool, mf::perf::TimingInstrument *timing)
+  SgdFilter(MF &model, mf::ObjectPool<mf::Block> &free_block_pool)
     : PipelineFilter(parallel, &free_block_pool)
-      , mf_(model)
-      , timing_(timing) {
+      , mf_(model)  {
   }
   ~SgdFilter() {
   }
@@ -174,8 +170,7 @@ class SgdFilter : public PipelineFilter<mf::Block>
   }
 
  private:
-  const MF&                       mf_;
-  mf::perf::TimingInstrument *    timing_;
+  const MF&                   mf_;
 };
 
 } // namespace mf

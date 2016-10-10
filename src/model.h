@@ -2,6 +2,7 @@
 #define _FASTMF_MODEL_H
 
 #include "util.h"
+#include <dmlc/concurrency.h>
 
 namespace mf
 {
@@ -130,7 +131,11 @@ class DPMF : public MF
 
   std::atomic<uint64_t> *gcountu;
   std::atomic<uint64_t> *gcountv;//128
+#if 0
+  dmlc::Spinlock *gmutex;
+#else
   std::mutex *gmutex;
+#endif
   std::uniform_int_distribution<> uniform_int_;
   float *ur_,
     *vr_,

@@ -30,7 +30,7 @@ class RandomMerger
     size_t lastCount = 0;
     Record record;
     std::default_random_engine generator(std::chrono::system_clock::now().time_since_epoch().count());
-    std::uniform_int_distribution<int> randomFile(0, (int)files.size());
+    std::uniform_int_distribution<int> randomFile(0, (int)files.size() - 1);
     while(!rc && !files.empty()) {
       if(files.size() == 1) {
         ++lastCount; // make sure we aren't getting a large # of items from the last file
