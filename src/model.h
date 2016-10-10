@@ -131,8 +131,8 @@ class DPMF : public MF
 
   std::atomic<uint64_t> *gcountu;
   std::atomic<uint64_t> *gcountv;//128
-#if 0
-  dmlc::Spinlock *gmutex;
+#if 1
+  fast_mutex *gmutex;
 #else
   std::mutex *gmutex;
 #endif

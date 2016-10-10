@@ -44,23 +44,6 @@ class SgldFilter : public PipelineFilter<mf::Block>
       , dpmf_(dpmf) {
   }
 
-  void checkNoise() {
-#ifndef NDEBUG
-    for (int i = 0; i < dpmf_.nr_users_; ++i) {
-      for (int j = 0; j < dpmf_.dim_; ++j) {
-        const float f = dpmf_.theta_[i][j];
-        DCHECK_EQ(mf::isFinite(f), true);
-      }
-    }
-    for (int i = 0; i < dpmf_.nr_videos_; ++i) {
-      for (int j = 0; j < dpmf_.dim_; j++) {
-        const float f = dpmf_.phi_[i][j];
-        DCHECK_EQ(mf::isFinite(f), true);
-      }
-    }
-#endif
-  }
-
   void *execute(mf::Block *block) {
     if(block) {
       mf::perf::TimingItem inFunc(timing_, FILTER_STAGE_CALC, "FILTER_STAGE_CALC");
@@ -102,7 +85,6 @@ class SgldFilter : public PipelineFilter<mf::Block>
 
           const float rating = rec.rating();
 
-          // TODO: Try a futex
           dpmf_.gmutex[vid].lock();
           const uint64_t gc = dpmf_.gcount.fetch_add(1);
           DCHECK_GE(gc, dpmf_.gcountv[vid].load());

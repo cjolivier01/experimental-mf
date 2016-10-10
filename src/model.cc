@@ -364,8 +364,8 @@ void DPMF::init() {
   gcount = 0;
   gcountu = new std::atomic<uint64_t>[nr_users_];
   gcountv = new std::atomic<uint64_t>[nr_videos_];
-#if 0
-  gmutex  = new dmlc::Spinlock[nr_videos_];
+#if 1
+  gmutex  = new fast_mutex[nr_videos_];
 #else
   gmutex  = new std::mutex[nr_videos_];
 #endif

@@ -12,6 +12,9 @@
 #include <algorithm>
 #include <mutex>
 #include <atomic>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
 #include <tbb/pipeline.h>
 #include <dmlc/logging.h>
 #include <dmlc/io.h>
@@ -278,6 +281,69 @@ inline bool isNan(const float &f) {
   // This can't be trusted with all compilers in release mode
   return f != f;
 }
+
+#if 1 && defined(__linux__)
+
+class futex {
+ public:
+  futex() : lock_val_(0) {}
+
+  ~futex() {}
+
+  void lock() {
+    int s = 0;
+    if(!lock_val_.compare_exchange_strong(s, 1)) {
+      if(s != 2)
+        s = lock_val_.exchange(2);
+      while(s != 0) {
+        fwait(&lock_val_, 2);
+        s = lock_val_.exchange(2);
+      }
+    }
+  }
+
+  void unlock() {
+    DCHECK_GE(lock_val_.load(), 1) << "multiple unlock() calls in a row";
+    if(lock_val_-- != 1)  {
+      //if old value was 2
+      lock_val_ = 0;
+      fwakeup_one(&lock_val_);
+    }
+  }
+
+ protected:
+  static constexpr int WAIT = 0, WAKE = 1;
+
+  inline static long fwait( void *futex, int comparand ) {
+    const long r = syscall(SYS_futex, futex, WAIT, comparand, NULL, NULL, 0);
+    int e;
+    DCHECK_EQ(r == 0 || r == EWOULDBLOCK || (r == -1 && ((e = errno) == EAGAIN || e == EINTR)), true) << "fwait: lock failed";
+    return r;
+  }
+
+  inline static long fwakeup_one( void *futex ) {
+    const long r = ::syscall(SYS_futex, futex, WAKE, 1, NULL, NULL, 0);
+    DCHECK_EQ(r == 0 || r == 1, true) << "fwakeup_one: more than one thread woken up?"; // also 1 ok
+    return r;
+  }
+
+  inline static long fwakeup_all( void *futex ) {
+    const long r = ::syscall(SYS_futex, futex, WAKE, INT_MAX, NULL, NULL, 0);
+    DCHECK_GE(r, 0) << "fwakeup_all: error in waking up threads";
+    return r;
+  }
+ private:
+  std::atomic<int> lock_val_;
+};
+
+typedef futex fast_mutex;
+
+#else
+
+typedef std::mutex fast_mutex;
+
+#endif
+
 
 } // namespace mf
 
