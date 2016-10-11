@@ -27,6 +27,10 @@ typedef std::tuple<int, int, float> Tuple;
 
 static int block_size = 1000;
 
+inline float round_down_4(const float f) {
+  return ceilf(f * 10000) / 10000;
+}
+
 static std::vector<std::string>& tokenize(const std::string& str,
                                           const std::string& delimiters,
                                           std::vector<std::string>& tokens) {
@@ -41,24 +45,75 @@ static std::vector<std::string>& tokenize(const std::string& str,
   return tokens;
 }
 
-static int read_raw(IFSTREAM_T& ins, std::vector<Tuple>& data, size_t maxRecords) {
+struct RangeConverter
+{
+  struct Range
+  {
+    float low_, hi_; // inclusive
+
+    static inline float normalize(const float f) {
+      return round_down_4(f);
+    }
+    inline void normalize() {
+      low_ = normalize(low_);
+      hi_  = normalize(hi_);
+    }
+    inline void bound(float f) {
+      f = normalize(f);
+      if(f < low_) { low_ = f; }
+      if(f >  hi_) { hi_  = f; }
+    }
+    inline float range() const {
+      return hi_ - low_;
+    }
+  };
+  Range from_;
+  Range to_;
+  bool scale(float fIn, float& fOut) const {
+    CHECK_GT(from_.hi_, from_.low_) << "Invalid range: low = " <<
+                                    from_.low_ << ", high = " << from_.hi_;
+    CHECK_GT(to_.hi_, to_.low_)     << "Invalid range: low = " <<
+                                    to_.low_ << ", high = " << to_.hi_;
+    fIn = Range::normalize(fIn);
+    if(fIn < from_.low_ || fIn > from_.hi_) {
+      return false;
+    }
+    const float pct = (fIn - from_.low_) / from_.range();
+    fOut = Range::normalize((pct * to_.range()) + to_.low_);
+    return true;
+  }
+  void normalize() {
+    from_.normalize();
+    to_.normalize();
+  }
+};
+
+static int read_raw(IFSTREAM_T& ins,
+                    std::vector<Tuple>& data,
+                    size_t maxRecords,
+                    const bool reverseUser,
+                    RangeConverter::Range& rangeIn) {
   std::string line;
   while(std::getline(ins, line) && !line.empty() && line[0] == '%')
     ;
   std::vector<std::string> tokens;
   tokenize(line, " ,\t", tokens);
-  const size_t nn = !tokens.empty() ? atol((*tokens.rbegin()).c_str()) : 0;
+  const size_t nn = !tokens.empty() ? strtoul((*tokens.rbegin()).c_str(), NULL, 10) : 0UL;
   data.reserve(std::min(maxRecords, nn));
+  const size_t userIndex = reverseUser ? 1 : 0;
+  const size_t vidIndex  = reverseUser ? 0 : 1;
   while(std::getline(ins, line) && data.size() < maxRecords) {
     tokens.clear();
     tokens.reserve(5);
     tokenize(line, " ,\t", tokens);
     if(tokens.size() >= 3) {
+      float rating;
       data.push_back(std::make_tuple(
-        atol(tokens[1].c_str()),
-        atol(tokens[0].c_str()),
-        atol(tokens[2].c_str()))
+        atol(tokens[userIndex].c_str()),
+        atol(tokens[vidIndex].c_str()),
+        (rating = (float)atof(tokens[2].c_str())))
       );
+      rangeIn.bound(rating);
     }
   }
   std::random_shuffle(data.begin(), data.end());
@@ -68,13 +123,17 @@ static int read_raw(IFSTREAM_T& ins, std::vector<Tuple>& data, size_t maxRecords
   return 0;
 }
 
-static int read_raw(const char* file, std::vector<Tuple>& data, const size_t maxRecords) {
+static int read_raw(const char* file,
+                    std::vector<Tuple>& data,
+                    const size_t maxRecords,
+                    const bool reverseUser,
+                    RangeConverter::Range& rangeIn) {
   IFSTREAM_T ins(file);
   if(!ins.is_open())  {
     LOG(ERROR) << "Unable to open file for read: " << file << " - " << strerror(errno) << std::endl;
     return errno;
   }
-  return read_raw(ins, data, maxRecords);
+  return read_raw(ins, data, maxRecords, reverseUser, rangeIn);
 }
 
 static void write_by_dict(Dict& du, OFSTREAM_T& output) {
@@ -138,28 +197,6 @@ static int userwise(const char* write,
   return rc;
 }
 
-struct RangeConverter
-{
-  struct Range
-  {
-    int low_, hi_; // inclusive
-    int range() const { return hi_ - low_; }
-  };
-  Range from_;
-  Range to_;
-  bool scale(const float fIn, float& fOut) const {
-    CHECK_GT(from_.hi_, from_.low_) << "Invalid range: low = " <<
-                                    from_.low_ << ", high = " << from_.hi_;
-    CHECK_GT(to_.hi_, to_.low_)     << "Invalid range: low = " <<
-                                    to_.low_ << ", high = " << to_.hi_;
-    if(fIn < from_.low_ || fIn > from_.hi_) {
-      return false;
-    }
-    const float pct = (fIn - from_.low_) / from_.range();
-    fOut = (pct * to_.range()) + to_.low_;
-    return true;
-  }
-};
 static int get_message(const char* read, const char* write, const RangeConverter& ranges)
 {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
@@ -215,12 +252,15 @@ static int get_message(const char* read, const char* write, const RangeConverter
             break;
           }
           record = user->add_record();
-          float rating;
-          if (sscanf(buf.c_str(), "%d,%f", &vid, &rating) != 2) {
+          std::vector<std::string> tokens;
+          tokenize(buf, " ,\t", tokens);
+          if(tokens.size() < 2) {
             LOG(ERROR) << "Bad input line: " << buf.c_str() << std::endl;
-            rc = 1;
+            rc = EINVAL;
             break;
           }
+          vid = atoi(tokens[0].c_str());
+          const float rating = atof(tokens[1].c_str());
           record->set_vid(vid);
 
           float scaledRating;
@@ -292,7 +332,8 @@ static int raw_to_protobuf(const char *fileIn,
                            const char *fileOut,
                            const size_t numRatingMatrixSplits,
                            const size_t maxRecords,
-                           const RangeConverter& ranges)
+                           const bool reverseUser,
+                           RangeConverter& ranges)
 {
   RandomMerger<std::string, IFSTREAM_T, OFSTREAM_T>::seedRandom();
   int rc = 0;
@@ -308,7 +349,7 @@ static int raw_to_protobuf(const char *fileIn,
     const std::string& outFileName = (*tempFiles.rbegin())->getName();
     if(!outFileName.empty()) {
       std::vector<Tuple> data;
-      rc = read_raw(inFile, data, maxRecords);
+      rc = read_raw(inFile, data, maxRecords, reverseUser, ranges.from_);
       if(!rc) {
         totalCount += data.size();
         const size_t dataItemCount = data.size();
@@ -355,8 +396,9 @@ static void hint() {
   std::cerr << "--method       [userwise/raw2proto/protobuf]\n";
   std::cerr << "--split        [number_of_splits_for_rating_matrix]\thints: 1~10 splits are recommended\n";
   std::cerr << "--size         [number_of_users_in_each_block]\thints: 1 fread reads 1 block each time\n";
-  std::cerr << "--input-range  [input score inclusive range. Default: 0,5 \n";
-  std::cerr << "--output-range [output score inclusive range. low,high. Default: 0,5 \n";
+  std::cerr << "--input-range  [input score inclusive range (May be adjusted be seen values) Default: 0,5\n";
+  std::cerr << "--output-range [output score inclusive range. low,high. Default: 0,5\n";
+  std::cerr << "--raw-reverse  [raw input is V,User,Rating rather than User,V,Rating]\n";
   std::cerr << std::flush;
 }
 
@@ -370,6 +412,7 @@ int main(int argc, char** argv) {
   ranges.from_.hi_  = ranges.to_.hi_  = 5;
 
   size_t numRatingMatrixSplits = 1;
+  bool reverseUser = false;
   int rc = 0;
   size_t stageSize = DEFAULT_MAX_RECORDS;
   for(int i = 1; !rc && i < argc; ++i) {
@@ -391,22 +434,23 @@ int main(int argc, char** argv) {
     }
     else if (!strcmp(option, "--split")) {
       if (++i < argc) {
-        numRatingMatrixSplits = atoi(argv[i]);
+        numRatingMatrixSplits = strtoul(argv[i], NULL, 10);
       }
     }
     else if (!strcmp(option, "--size")) {
       if (++i < argc) {
         block_size = atoi(argv[i]);
       }
-    }
-    else if(!strcmp(option, "--stage-size")) {
+    } else if(!strcmp(option, "--stage-size")) {
       if (++i < argc) {
-        stageSize = atoi(argv[i]);
-        if(!stageSize) {
+        stageSize = strtoul(argv[i], NULL, 10);
+        if (!stageSize) {
           std::cerr << "Invalid stage size: " << stageSize << std::endl;
           rc = EINVAL;
         }
       }
+    } else if(!strcmp(option, "--raw-reverse")) {
+      reverseUser = true;
     } else if(!strcmp(option, "--input-range")) {
       if (++i < argc) {
         const std::string s = argv[i];
@@ -445,12 +489,13 @@ int main(int argc, char** argv) {
       hint();
       rc = 1;
     } else {
+      ranges.normalize();
       const uint64_t startTime = mf::perf::getTickCount();
       if(!strcmp(method, "raw2proto")) {
-        rc = raw_to_protobuf(read, write, numRatingMatrixSplits, stageSize, ranges);
+        rc = raw_to_protobuf(read, write, numRatingMatrixSplits, stageSize, reverseUser, ranges);
       } else if (!strcmp(method, "userwise")) {
         std::vector<Tuple> data;
-        rc = read_raw(read, data, ULONG_LONG_MAX);
+        rc = read_raw(read, data, ULONG_LONG_MAX, reverseUser, ranges.from_);
         if(!rc) {
           const size_t nn = data.size();
           const size_t itemsPerSplit = nn / numRatingMatrixSplits;
